@@ -7,31 +7,36 @@ import {
   getCurrentTaskInput,
 } from "@langchain/langgraph";
 
-export function createHandoffTool({
-  agentName,
-  description,
-}: {
+interface HandoffToolParams {
   agentName: string;
   description?: string;
-}) {
-  const name = `transfer_to_${agentName.replace(/\s+/g, "_").toLowerCase()}`;
+}
+
+export function createHandoffTool({ agentName, description }: HandoffToolParams) {
+  const toolName = `transfer_to_${agentName.replace(/\s+/g, "_").toLowerCase()}`;
+
   return tool(
     async (_args, cfg) => {
-      const state =
-        getCurrentTaskInput() as (typeof MessagesAnnotation)["State"];
+      const state = getCurrentTaskInput() as (typeof MessagesAnnotation)["State"];
+      const messages = state.messages ?? [];
+
       const tm = new ToolMessage({
         content: `Transferred to ${agentName}`,
-        name,
+        name: toolName,
         tool_call_id: cfg.toolCall.id,
       });
+
       return new Command({
         goto: agentName,
         graph: Command.PARENT,
-        update: { messages: state.messages.concat(tm), activeAgent: agentName },
+        update: {
+          messages: messages.concat(tm),
+          activeAgent: agentName,
+        },
       });
     },
     {
-      name,
+      name: toolName,
       description: description ?? `Ask ${agentName} for help`,
       schema: z.object({}),
     }

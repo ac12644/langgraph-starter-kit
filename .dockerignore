@@ -1,0 +1,13 @@
+node_modules
+dist
+build
+.git
+.env
+.env.*
+*.log
+*.tsbuildinfo
+coverage
+.DS_Store
+.vscode
+.idea
+mcp-servers.json

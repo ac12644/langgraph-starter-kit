@@ -16,15 +16,11 @@ build/
 .env.*.local
 
 # Logs
-logs
+logs/
 *.log
 *.log.*
-*.out
-*.out.*
-*.err
-*.err.*
 
-# IDE/editor
+# IDE / editor
 .vscode/
 .idea/
 *.swp
@@ -34,6 +30,15 @@ logs
 # Coverage / testing
 coverage/
 *.lcov
+
+# Docker
+docker-compose.override.yml
+
+# MCP config (may contain auth tokens)
+mcp-servers.json
+
+# Firebase
+firebase-debug.log
 
 # Misc
 .tmp/
