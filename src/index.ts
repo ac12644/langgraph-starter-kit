@@ -6,6 +6,8 @@ import { createSwarmApp } from "./apps/swarm";
 import { createSupervisorApp } from "./apps/supervisor";
 import { createInterruptApp } from "./apps/interrupt";
 import { createAnalystApp } from "./apps/analyst";
+import { createResearcherApp } from "./apps/researcher";
+import { createRagApp, initRagStore } from "./apps/rag";
 
 function lastContent(messages: BaseMessage[]): string {
   const last = messages.at(-1);
@@ -26,6 +28,9 @@ async function run(): Promise<void> {
   const supervisorApp = createSupervisorApp(mcpTools);
   const interruptApp = createInterruptApp();
   const analystApp = createAnalystApp();
+  const researcherApp = createResearcherApp();
+  const ragStore = await initRagStore();
+  const ragApp = createRagApp(ragStore);
 
   const cfg = { configurable: { thread_id: "demo" } };
 
@@ -63,6 +68,32 @@ async function run(): Promise<void> {
     { configurable: { thread_id: "analyst-demo" } }
   );
   console.log("analyst:", lastContent(analysis.messages));
+
+  // -- Research Agent --
+  console.log("\n=== Research Agent Demo ===");
+  const research = await researcherApp.invoke(
+    {
+      messages: [{
+        role: "user",
+        content: "Research the latest developments in LangGraph and multi-agent systems. Give me a brief summary.",
+      }],
+    },
+    { configurable: { thread_id: "research-demo" } }
+  );
+  console.log("researcher:", lastContent(research.messages));
+
+  // -- RAG --
+  console.log("\n=== RAG Demo ===");
+  const rag = await ragApp.invoke(
+    {
+      messages: [{
+        role: "user",
+        content: "What is the supervisor pattern and how does it differ from swarm?",
+      }],
+    },
+    { configurable: { thread_id: "rag-demo" } }
+  );
+  console.log("rag:", lastContent(rag.messages));
 
   // -- Human-in-the-Loop --
   console.log("\n=== Human-in-the-Loop Demo ===");

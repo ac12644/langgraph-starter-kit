@@ -1,58 +1,39 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import type { StructuredToolInterface } from "@langchain/core/tools";
 import {
   createReactAgent,
-  createReactAgentAnnotation,
+  type CreateReactAgentParams,
 } from "@langchain/langgraph/prebuilt";
-import { Annotation, messagesStateReducer } from "@langchain/langgraph";
-import { BaseMessage, SystemMessage } from "@langchain/core/messages";
-
-type ReactAgentParams = Parameters<typeof createReactAgent>[0];
 
 export interface MakeAgentParams {
   name: string;
   llm: BaseChatModel;
-  tools?: ReactAgentParams["tools"];
+  tools?: StructuredToolInterface[];
   system?: string;
-  privateMessagesKey?: string;
-  responseFormat?: ReactAgentParams["responseFormat"];
+  responseFormat?: CreateReactAgentParams["responseFormat"];
 }
 
-export function privateMessagesSchema(key: string) {
-  return Annotation.Root({
-    [key]: Annotation<BaseMessage[]>({
-      reducer: messagesStateReducer,
-      default: () => [],
-    }),
-  });
-}
-
+/**
+ * Wraps createReactAgent with a simpler interface.
+ *
+ * NOTE: createReactAgent is deprecated in LangGraph v1 in favor of
+ * `createAgent` from the `langchain` package. However, the supervisor
+ * and swarm packages (@langchain/langgraph-supervisor, @langchain/langgraph-swarm)
+ * do not yet accept the new ReactAgent type. Once they do, migrate this
+ * factory to use `createAgent` from "langchain".
+ */
 export function makeAgent({
   name,
   llm,
   tools = [],
   system,
-  privateMessagesKey,
   responseFormat,
 }: MakeAgentParams) {
-  const stateSchema = privateMessagesKey
-    ? privateMessagesSchema(privateMessagesKey)
-    : createReactAgentAnnotation();
-
-  const msgKey = privateMessagesKey;
-  const prompt =
-    typeof system === "string"
-      ? (state: Record<string, BaseMessage[]>) => [
-          new SystemMessage(system),
-          ...(state.messages ?? (msgKey ? state[msgKey] : []) ?? []),
-        ]
-      : undefined;
-
   return createReactAgent({
     name,
     llm,
     tools,
-    stateSchema,
-    prompt,
+    ...(system ? { prompt: system } : {}),
     ...(responseFormat ? { responseFormat } : {}),
   });
 }

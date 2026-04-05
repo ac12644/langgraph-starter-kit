@@ -1,0 +1,13 @@
+{
+  "node_version": "22",
+  "dependencies": ["."],
+  "graphs": {
+    "swarm": "./src/apps/swarm.ts:createSwarmApp",
+    "supervisor": "./src/apps/supervisor.ts:createSupervisorApp",
+    "interrupt": "./src/apps/interrupt.ts:createInterruptApp",
+    "analyst": "./src/apps/analyst.ts:createAnalystApp",
+    "researcher": "./src/apps/researcher.ts:createResearcherApp",
+    "rag": "./src/apps/rag.ts:createRagApp"
+  },
+  "env": ".env"
+}

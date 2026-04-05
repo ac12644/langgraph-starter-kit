@@ -1,24 +1,19 @@
 {
-  "throwOnLoadError": true,
-  "prefixToolNameWithServerName": true,
-  "onConnectionError": "ignore",
-  "mcpServers": {
-    "math": {
-      "transport": "stdio",
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-math"],
-      "restart": {
-        "enabled": true,
-        "maxAttempts": 3,
-        "delayMs": 1000
-      }
-    },
-    "remote-api": {
-      "transport": "http",
-      "url": "https://my-mcp-server.example.com/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_TOKEN"
-      }
+  "math": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-math"],
+    "restart": {
+      "enabled": true,
+      "maxAttempts": 3,
+      "delayMs": 1000
+    }
+  },
+  "remote-api": {
+    "transport": "http",
+    "url": "https://my-mcp-server.example.com/mcp",
+    "headers": {
+      "Authorization": "Bearer YOUR_TOKEN"
     }
   }
 }

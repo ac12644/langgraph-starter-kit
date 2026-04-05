@@ -6,6 +6,8 @@ import { createSwarmApp } from "../apps/swarm";
 import { createSupervisorApp } from "../apps/supervisor";
 import { createInterruptApp } from "../apps/interrupt";
 import { createAnalystApp } from "../apps/analyst";
+import { createResearcherApp } from "../apps/researcher";
+import { createRagApp, initRagStore } from "../apps/rag";
 import { loadMcpTools } from "../tools/mcp";
 
 // -- Types --
@@ -56,6 +58,9 @@ export async function startServer(): Promise<void> {
   // Load MCP tools first — they get injected into agents
   const { tools: mcpTools, client: mcpClient } = await loadMcpTools();
 
+  // Initialize RAG vector store (async — must complete before building apps)
+  const ragStore = await initRagStore();
+
   // Build apps with MCP tools available
   const swarmApp = createSwarmApp(mcpTools);
   const apps = {
@@ -63,6 +68,8 @@ export async function startServer(): Promise<void> {
     supervisor: createSupervisorApp(mcpTools) as typeof swarmApp,
     interrupt: createInterruptApp() as typeof swarmApp,
     analyst: createAnalystApp() as typeof swarmApp,
+    researcher: createResearcherApp() as typeof swarmApp,
+    rag: createRagApp(ragStore) as typeof swarmApp,
   };
 
   type AppName = keyof typeof apps;

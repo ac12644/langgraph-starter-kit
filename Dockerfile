@@ -1,7 +1,7 @@
 FROM node:22-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --omit=dev
 
 FROM node:22-slim
 WORKDIR /app
@@ -16,6 +16,9 @@ COPY src ./src
 ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://localhost:3000/health').then(r=>{if(!r.ok)throw r})" || exit 1
 
 USER app
 

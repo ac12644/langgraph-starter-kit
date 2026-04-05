@@ -1,27 +1,60 @@
 {
-  "name": "agent-starter",
+  "name": "langgraph-starter-kit",
   "version": "1.0.0",
+  "description": "Production-ready multi-agent starter kit with LangGraph — supports swarm, supervisor, HITL, structured output, and 5 LLM providers",
   "private": true,
   "type": "module",
+  "keywords": [
+    "langgraph",
+    "langchain",
+    "multi-agent",
+    "ai-agents",
+    "swarm",
+    "supervisor",
+    "mcp",
+    "openai",
+    "anthropic",
+    "ollama",
+    "structured-output",
+    "human-in-the-loop",
+    "typescript"
+  ],
+  "license": "Apache-2.0",
+  "author": "Abhishek Chauhan",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ac12644/langgraph-starter-kit"
+  },
   "scripts": {
     "dev": "tsx src/index.ts",
-    "dev:http": "tsx src/server/index.ts"
+    "dev:http": "tsx src/server/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@langchain/core": "^1.1.33",
-    "@langchain/langgraph": "^1.2.3",
+    "@langchain/anthropic": "^1.3.26",
+    "@langchain/core": "^1.1.39",
+    "@langchain/google-genai": "^2.1.26",
+    "@langchain/groq": "^1.2.0",
+    "@langchain/langgraph": "^1.2.7",
     "@langchain/langgraph-supervisor": "^1.0.1",
     "@langchain/langgraph-swarm": "^1.0.1",
     "@langchain/mcp-adapters": "^1.1.3",
-    "@langchain/openai": "^1.3.0",
-    "dotenv": "^17.3.1",
-    "fastify": "^5.8.2",
+    "@langchain/ollama": "^1.2.6",
+    "@langchain/openai": "^1.4.2",
+    "@langchain/textsplitters": "^1.0.1",
+    "dotenv": "^17.4.0",
+    "fastify": "^5.8.4",
+    "langchain": "^1.3.0",
     "uuid": "^13.0.0",
-    "zod": "^3.25.76"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.5.2",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
   }
 }

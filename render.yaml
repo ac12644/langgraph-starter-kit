@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: langgraph-starter-kit
+    runtime: docker
+    healthCheckPath: /health
+    envVars:
+      - key: LLM_PROVIDER
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: PORT
+        value: "3000"

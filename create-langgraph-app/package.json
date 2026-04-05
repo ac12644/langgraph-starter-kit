@@ -1,0 +1,35 @@
+{
+  "name": "create-langgraph-app",
+  "version": "1.0.0",
+  "description": "Scaffold a new LangGraph multi-agent project in seconds",
+  "type": "module",
+  "bin": {
+    "create-langgraph-app": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsx --no-cache create.ts > /dev/null && tsc",
+    "dev": "tsx create.ts"
+  },
+  "files": ["dist"],
+  "keywords": [
+    "langgraph",
+    "langchain",
+    "ai-agents",
+    "multi-agent",
+    "scaffold",
+    "cli",
+    "create"
+  ],
+  "license": "Apache-2.0",
+  "author": "Abhishek Chauhan",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ac12644/langgraph-starter-kit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}
