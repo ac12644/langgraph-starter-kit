@@ -9,22 +9,22 @@ const DEFAULTS: Record<string, string> = {
   ollama: "nomic-embed-text",
 };
 
-export function createEmbeddings(modelOverride?: string): Embeddings {
+export async function createEmbeddings(modelOverride?: string): Promise<Embeddings> {
   const provider = LLM_PROVIDER;
   const model = modelOverride ?? DEFAULTS[provider] ?? DEFAULTS.openai;
 
   switch (provider) {
     case "google": {
-      const { GoogleGenerativeAIEmbeddings } = require("@langchain/google-genai");
+      const { GoogleGenerativeAIEmbeddings } = await import("@langchain/google-genai");
       return new GoogleGenerativeAIEmbeddings({ model });
     }
     case "ollama": {
-      const { OllamaEmbeddings } = require("@langchain/ollama");
+      const { OllamaEmbeddings } = await import("@langchain/ollama");
       return new OllamaEmbeddings({ model });
     }
     default: {
       // OpenAI embeddings as default (also used by anthropic/groq which lack embeddings)
-      const { OpenAIEmbeddings } = require("@langchain/openai");
+      const { OpenAIEmbeddings } = await import("@langchain/openai");
       return new OpenAIEmbeddings({ model });
     }
   }

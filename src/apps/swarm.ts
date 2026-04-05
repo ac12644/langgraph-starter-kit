@@ -1,8 +1,8 @@
 import type { DynamicStructuredTool } from "@langchain/core/tools";
+import { createHandoffTool } from "@langchain/langgraph-swarm";
 import { llm } from "../config/llm";
 import { add, multiply, echo } from "../tools/local";
 import { makeAgent } from "../agents/factory";
-import { createHandoffTool } from "../agents/handoff";
 import { makeSwarm, type MakeSwarmParams } from "../agents/swarm";
 
 export function createSwarmApp(mcpTools: DynamicStructuredTool[] = []) {
@@ -17,7 +17,7 @@ export function createSwarmApp(mcpTools: DynamicStructuredTool[] = []) {
     name: "bob",
     llm,
     tools: [multiply, echo, createHandoffTool({ agentName: "alice" })],
-    system: "You are Bob; speak like a pirate.",
+    system: "You are Bob, a multiplication expert.",
   });
 
   return makeSwarm({

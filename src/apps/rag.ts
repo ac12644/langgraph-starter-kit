@@ -20,7 +20,7 @@ export async function initRagStore(
 ): Promise<InMemoryVectorStore> {
   if (_vectorStore) return _vectorStore;
 
-  const embeddings = createEmbeddings();
+  const embeddings = await createEmbeddings();
   _vectorStore = await buildVectorStore(embeddings, customDocs ?? SAMPLE_DOCS);
   console.log(`RAG: indexed ${_vectorStore.size} chunks`);
   return _vectorStore;

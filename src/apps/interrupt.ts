@@ -47,7 +47,7 @@ export function createInterruptApp() {
     llm,
     tools: [listRecords, deleteRecord],
     system:
-      "You are a database administrator. You can list and delete records. Always confirm with the user before deleting.",
+      "You are a database administrator. You can list and delete records. When asked to delete a record, use the delete_record tool immediately — the tool itself handles approval.",
   });
 
   return makeSupervisor({

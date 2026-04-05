@@ -20,8 +20,17 @@ interface TaskState {
   tasks?: Array<{ interrupts?: Array<{ value?: Record<string, unknown> }> }>;
 }
 
+async function runDemo(name: string, fn: () => Promise<void>): Promise<void> {
+  console.log(`\n=== ${name} ===`);
+  try {
+    await fn();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`${name} failed: ${msg}`);
+  }
+}
+
 async function run(): Promise<void> {
-  // Load MCP tools and inject into agents
   const { tools: mcpTools } = await loadMcpTools();
 
   const swarmApp = createSwarmApp(mcpTools);
@@ -32,97 +41,95 @@ async function run(): Promise<void> {
   const ragStore = await initRagStore();
   const ragApp = createRagApp(ragStore);
 
-  const cfg = { configurable: { thread_id: "demo" } };
+  // -- Supervisor --
+  await runDemo("Supervisor Demo", async () => {
+    const result = await supervisorApp.invoke(
+      { messages: [{ role: "user", content: "sum 10 and 15, then write a one-line summary" }] },
+      { configurable: { thread_id: "supervisor-demo" } }
+    );
+    console.log("supervisor:", lastContent(result.messages));
+  });
 
   // -- Swarm --
-  console.log("=== Swarm Demo ===");
-  const swarm1 = await swarmApp.invoke(
-    { messages: [{ role: "user", content: "talk to bob then add 5 and 7" }] },
-    cfg
-  );
-  console.log("swarm#1:", lastContent(swarm1.messages));
-
-  const swarm2 = await swarmApp.invoke(
-    { messages: [{ role: "user", content: "now multiply result by 3" }] },
-    cfg
-  );
-  console.log("swarm#2:", lastContent(swarm2.messages));
-
-  // -- Supervisor --
-  console.log("\n=== Supervisor Demo ===");
-  const sup = await supervisorApp.invoke(
-    { messages: [{ role: "user", content: "sum 10 and 15, then write a one-line summary" }] },
-    cfg
-  );
-  console.log("supervisor:", lastContent(sup.messages));
+  await runDemo("Swarm Demo", async () => {
+    const result = await swarmApp.invoke(
+      { messages: [{ role: "user", content: "add 5 and 7" }] },
+      { configurable: { thread_id: "swarm-demo" } }
+    );
+    console.log("swarm:", lastContent(result.messages));
+  });
 
   // -- Structured Output --
-  console.log("\n=== Structured Output Demo ===");
-  const analysis = await analystApp.invoke(
-    {
-      messages: [{
-        role: "user",
-        content: "Analyze: Our Q4 revenue grew 25% YoY, but customer churn increased by 8%. The new product launch exceeded expectations with 50k signups in the first week.",
-      }],
-    },
-    { configurable: { thread_id: "analyst-demo" } }
-  );
-  console.log("analyst:", lastContent(analysis.messages));
-
-  // -- Research Agent --
-  console.log("\n=== Research Agent Demo ===");
-  const research = await researcherApp.invoke(
-    {
-      messages: [{
-        role: "user",
-        content: "Research the latest developments in LangGraph and multi-agent systems. Give me a brief summary.",
-      }],
-    },
-    { configurable: { thread_id: "research-demo" } }
-  );
-  console.log("researcher:", lastContent(research.messages));
+  await runDemo("Structured Output Demo", async () => {
+    const result = await analystApp.invoke(
+      {
+        messages: [{
+          role: "user",
+          content: "Analyze: Our Q4 revenue grew 25% YoY, but customer churn increased by 8%.",
+        }],
+      },
+      { configurable: { thread_id: "analyst-demo" } }
+    );
+    console.log("analyst:", lastContent(result.messages));
+  });
 
   // -- RAG --
-  console.log("\n=== RAG Demo ===");
-  const rag = await ragApp.invoke(
-    {
-      messages: [{
-        role: "user",
-        content: "What is the supervisor pattern and how does it differ from swarm?",
-      }],
-    },
-    { configurable: { thread_id: "rag-demo" } }
-  );
-  console.log("rag:", lastContent(rag.messages));
+  await runDemo("RAG Demo", async () => {
+    const result = await ragApp.invoke(
+      {
+        messages: [{
+          role: "user",
+          content: "What is the supervisor pattern and how does it differ from swarm?",
+        }],
+      },
+      { configurable: { thread_id: "rag-demo" } }
+    );
+    console.log("rag:", lastContent(result.messages));
+  });
+
+  // -- Research Agent --
+  await runDemo("Research Agent Demo", async () => {
+    const result = await researcherApp.invoke(
+      {
+        messages: [{
+          role: "user",
+          content: "Research the latest developments in LangGraph and multi-agent systems. Give me a brief summary.",
+        }],
+      },
+      { configurable: { thread_id: "research-demo" } }
+    );
+    console.log("researcher:", lastContent(result.messages));
+  });
 
   // -- Human-in-the-Loop --
-  console.log("\n=== Human-in-the-Loop Demo ===");
-  const hitlCfg = { configurable: { thread_id: "hitl-demo" } };
+  await runDemo("Human-in-the-Loop Demo", async () => {
+    const hitlCfg = { configurable: { thread_id: "hitl-demo" } };
 
-  await interruptApp.invoke(
-    { messages: [{ role: "user", content: "delete record rec_2" }] },
-    hitlCfg
-  );
-
-  const state = await interruptApp.getState(hitlCfg) as TaskState;
-  const pendingSteps = state.next ?? [];
-
-  if (pendingSteps.length > 0) {
-    console.log("interrupt: Graph paused, waiting for approval...");
-
-    const interrupts = (state.tasks ?? []).flatMap((t) => t.interrupts ?? []);
-    for (const i of interrupts) {
-      const detail = i.value?.message ?? JSON.stringify(i.value);
-      console.log("interrupt: Approval needed:", detail);
-    }
-
-    console.log('interrupt: Approving with "yes"...');
-    const resumed = await interruptApp.invoke(
-      new Command({ resume: "yes" }),
+    await interruptApp.invoke(
+      { messages: [{ role: "user", content: "delete record rec_2" }] },
       hitlCfg
     );
-    console.log("interrupt:", lastContent(resumed.messages));
-  }
+
+    const state = await interruptApp.getState(hitlCfg) as TaskState;
+    const pendingSteps = state.next ?? [];
+
+    if (pendingSteps.length > 0) {
+      console.log("interrupt: Graph paused, waiting for approval...");
+
+      const interrupts = (state.tasks ?? []).flatMap((t) => t.interrupts ?? []);
+      for (const i of interrupts) {
+        const detail = i.value?.message ?? JSON.stringify(i.value);
+        console.log("interrupt: Approval needed:", detail);
+      }
+
+      console.log('interrupt: Approving with "yes"...');
+      const resumed = await interruptApp.invoke(
+        new Command({ resume: "yes" }),
+        hitlCfg
+      );
+      console.log("interrupt:", lastContent(resumed.messages));
+    }
+  });
 }
 
 run().catch((err: unknown) => {

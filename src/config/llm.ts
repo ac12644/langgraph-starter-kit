@@ -9,33 +9,33 @@ const DEFAULTS: Record<string, string> = {
   ollama: "llama3.2",
 };
 
-function createLlm(): BaseChatModel {
+async function createLlm(): Promise<BaseChatModel> {
   const model = LLM_MODEL ?? DEFAULTS[LLM_PROVIDER] ?? DEFAULTS.openai;
   const temperature = LLM_TEMPERATURE;
 
   switch (LLM_PROVIDER) {
     case "anthropic": {
-      const { ChatAnthropic } = require("@langchain/anthropic");
+      const { ChatAnthropic } = await import("@langchain/anthropic");
       return new ChatAnthropic({ modelName: model, temperature });
     }
     case "google": {
-      const { ChatGoogleGenerativeAI } = require("@langchain/google-genai");
-      return new ChatGoogleGenerativeAI({ modelName: model, temperature });
+      const { ChatGoogleGenerativeAI } = await import("@langchain/google-genai");
+      return new ChatGoogleGenerativeAI({ model, temperature });
     }
     case "groq": {
-      const { ChatGroq } = require("@langchain/groq");
-      return new ChatGroq({ modelName: model, temperature });
+      const { ChatGroq } = await import("@langchain/groq");
+      return new ChatGroq({ model, temperature });
     }
     case "ollama": {
-      const { ChatOllama } = require("@langchain/ollama");
+      const { ChatOllama } = await import("@langchain/ollama");
       return new ChatOllama({ model, temperature });
     }
     case "openai":
     default: {
-      const { ChatOpenAI } = require("@langchain/openai");
+      const { ChatOpenAI } = await import("@langchain/openai");
       return new ChatOpenAI({ modelName: model, temperature });
     }
   }
 }
 
-export const llm = createLlm();
+export const llm = await createLlm();
