@@ -8,6 +8,7 @@ import { createInterruptApp } from "../apps/interrupt";
 import { createAnalystApp } from "../apps/analyst";
 import { createResearcherApp } from "../apps/researcher";
 import { createRagApp, initRagStore } from "../apps/rag";
+import { createSupportApp } from "../apps/support";
 import { loadMcpTools } from "../tools/mcp";
 
 // -- Types --
@@ -70,6 +71,7 @@ export async function startServer(): Promise<void> {
     analyst: createAnalystApp() as typeof swarmApp,
     researcher: createResearcherApp() as typeof swarmApp,
     rag: createRagApp(ragStore) as typeof swarmApp,
+    support: createSupportApp() as typeof swarmApp,
   };
 
   type AppName = keyof typeof apps;

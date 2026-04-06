@@ -3,7 +3,7 @@
   <p align="center">
     The fastest way to build production-ready multi-agent apps with LangGraph.
     <br />
-    <strong>6 patterns. 5 providers. One command.</strong>
+    <strong>7 patterns. 5 providers. One command.</strong>
   </p>
 </p>
 
@@ -19,6 +19,7 @@
   <a href="#quick-start">Quick Start</a> &bull;
   <a href="#agent-patterns">Patterns</a> &bull;
   <a href="#llm-providers">Providers</a> &bull;
+  <a href="#examples">Examples</a> &bull;
   <a href="#api-reference">API</a> &bull;
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
@@ -38,51 +39,62 @@ npx create-langgraph-app
 - Choose which agent patterns you need
 - Get a ready-to-run project with tests, types, and a Fastify server
 
-Or clone the full kit with all 6 patterns included.
+Or clone the full kit with all 7 patterns included.
 
 ## Architecture
 
-```
-              ┌─────────────────────────────────────────────┐
-              │             LangGraph Starter Kit            │
-              └──────────────────┬──────────────────────────┘
-                                 │
-              ┌──────────────────┼──────────────────────┐
-              ▼                  ▼                       ▼
-       ┌─────────────┐   ┌─────────────┐        ┌─────────────┐
-       │  CLI Demo    │   │ HTTP Server │        │  LangGraph  │
-       │  npm run dev │   │ dev:http    │        │   Studio    │
-       └──────┬──────┘   └──────┬──────┘        └──────┬──────┘
-              │                  │                       │
-              └──────────────────┼───────────────────────┘
-                                 ▼
-       ┌─────────────┐   ┌─────────────┐        ┌─────────────┐
-       │   6 Agent    │   │   Agent     │        │    Tools    │
-       │   Patterns   │   │  Factory    │        │             │
-       │              │   │             │        │  Local      │
-       │  Swarm       │   │ makeAgent() │        │  Web Search │
-       │  Supervisor  │   │ makeSuperv()│        │  RAG        │
-       │  HITL        │   │ makeSwarm() │        │  MCP        │
-       │  Structured  │   │             │        │             │
-       │  Research    │   └──────┬──────┘        └──────┬──────┘
-       │  RAG         │          │                       │
-       └──────┬──────┘          │                       │
-              └──────────────────┼───────────────────────┘
-                                 ▼
-                    ┌────────────────────────┐
-                    │    5 LLM Providers     │
-                    │                        │
-                    │  OpenAI  · Anthropic   │
-                    │  Google  · Groq        │
-                    │  Ollama (local)        │
-                    └────────────────────────┘
+```mermaid
+graph TD
+    A[LangGraph Starter Kit] --> B["CLI Demo · npm run dev"]
+    A --> C["HTTP Server · npm run dev:http"]
+    A --> D[LangGraph Studio]
+
+    B --> P
+    C --> P
+    D --> P
+
+    subgraph P["7 Agent Patterns"]
+        P1[Supervisor]
+        P2[Swarm]
+        P3[HITL]
+        P4[Structured Output]
+        P5[Research Agent]
+        P6[RAG]
+        P7[Customer Support]
+    end
+
+    subgraph F["Agent Factory"]
+        F1["makeAgent()"]
+        F2["makeSupervisor()"]
+        F3["makeSwarm()"]
+    end
+
+    subgraph T["Tools"]
+        T1[Local]
+        T2[Web Search]
+        T3[RAG]
+        T4[Support]
+        T5[MCP]
+    end
+
+    P --> L
+    F --> L
+    T --> L
+
+    subgraph L["5 LLM Providers"]
+        L1[OpenAI]
+        L2[Anthropic]
+        L3[Google]
+        L4[Groq]
+        L5["Ollama · local"]
+    end
 ```
 
 ## Features
 
 | | Feature | Description |
 |---|---|---|
-| **Patterns** | 6 Agent Patterns | Swarm, Supervisor, HITL, Structured Output, Research, RAG |
+| **Patterns** | 7 Agent Patterns | Swarm, Supervisor, HITL, Structured Output, Research, RAG, Customer Support |
 | **CLI** | Scaffolder | `npx create-langgraph-app` — interactive project generator |
 | **Providers** | 5 LLM Providers | OpenAI, Anthropic, Google, Groq, Ollama — switch with one env var |
 | **Tools** | MCP Integration | Connect external tools via Model Context Protocol |
@@ -91,7 +103,7 @@ Or clone the full kit with all 6 patterns included.
 | **Observe** | LangSmith Tracing | Full observability with one env var |
 | **Persist** | Memory + Postgres | In-memory for dev, PostgreSQL-ready for production |
 | **Deploy** | Docker + CI | Docker Compose with Postgres, GitHub Actions CI |
-| **Test** | 25+ Tests | Tools, config, agents — all tested with vitest |
+| **Test** | 34+ Tests | Tools, config, agents — all tested with vitest |
 
 ## Quick Start
 
@@ -134,7 +146,7 @@ git clone https://github.com/ac12644/langgraph-starter-kit.git
 cd langgraph-starter-kit
 npm install
 cp .env.example .env    # Add your API key
-npm run dev             # Run all 6 patterns
+npm run dev             # Run all 7 patterns
 npm run dev:http        # Start HTTP server on :3000
 ```
 
@@ -224,6 +236,16 @@ curl -X POST http://localhost:3000/rag/invoke \
   -d '{"messages": [{"role": "user", "content": "What is the supervisor pattern?"}]}'
 ```
 
+### 7. Customer Support Bot
+
+Multi-agent support system with a router that delegates to billing, tech support, and returns specialists. Includes escalation to human operators. Best for: **customer-facing products with different support domains**.
+
+```bash
+curl -X POST http://localhost:3000/support/invoke \
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "user", "content": "I am customer C-1002. I was charged $29.99 but my plan is free. Can you help?"}]}'
+```
+
 ## Streaming
 
 Every app supports SSE for real-time token streaming:
@@ -273,7 +295,19 @@ LANGSMITH_PROJECT=langgraph-starter-kit
 | `/:app/threads/:id/history` | GET | Full state history |
 | `/health` | GET | Health check |
 
-**Apps:** `swarm` `supervisor` `interrupt` `analyst` `researcher` `rag`
+**Apps:** `swarm` `supervisor` `interrupt` `analyst` `researcher` `rag` `support`
+
+## Examples
+
+Real-world agent apps with full documentation:
+
+| Example | Description | Patterns |
+|---|---|---|
+| **[Customer Support Bot](examples/customer-support/)** | Billing, tech support, returns routing with human escalation | Supervisor, HITL |
+| **[Research Agent](examples/research-agent/)** | Web search + report writing pipeline | Supervisor |
+| **[RAG Agent](examples/rag-agent/)** | Document indexing + semantic retrieval | Supervisor, RAG |
+
+Each example has its own README with architecture diagrams, tool reference, usage examples, and customization guide.
 
 ## Project Structure
 
@@ -288,6 +322,7 @@ src/
 │   ├── local.ts            # Built-in tools (add, multiply, echo)
 │   ├── web.ts              # Web search + URL scraping
 │   ├── rag.ts              # Vector store + retrieval
+│   ├── support.ts          # Customer support tools
 │   └── mcp.ts              # MCP external tool loader
 ├── agents/
 │   ├── factory.ts          # makeAgent() — agent builder
@@ -300,9 +335,14 @@ src/
 │   ├── interrupt.ts        # Human-in-the-loop
 │   ├── analyst.ts          # Structured output
 │   ├── researcher.ts       # Research agent
-│   └── rag.ts              # RAG agent
+│   ├── rag.ts              # RAG agent
+│   └── support.ts          # Customer support bot
 ├── server/index.ts         # Fastify HTTP server
 └── index.ts                # CLI demo
+examples/
+├── customer-support/       # Full customer support bot docs
+├── research-agent/         # Research agent docs
+└── rag-agent/              # RAG agent docs
 ```
 
 ## Deploy

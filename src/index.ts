@@ -8,6 +8,7 @@ import { createInterruptApp } from "./apps/interrupt";
 import { createAnalystApp } from "./apps/analyst";
 import { createResearcherApp } from "./apps/researcher";
 import { createRagApp, initRagStore } from "./apps/rag";
+import { createSupportApp } from "./apps/support";
 
 function lastContent(messages: BaseMessage[]): string {
   const last = messages.at(-1);
@@ -38,6 +39,7 @@ async function run(): Promise<void> {
   const interruptApp = createInterruptApp();
   const analystApp = createAnalystApp();
   const researcherApp = createResearcherApp();
+  const supportApp = createSupportApp();
   const ragStore = await initRagStore();
   const ragApp = createRagApp(ragStore);
 
@@ -99,6 +101,20 @@ async function run(): Promise<void> {
       { configurable: { thread_id: "research-demo" } }
     );
     console.log("researcher:", lastContent(result.messages));
+  });
+
+  // -- Customer Support --
+  await runDemo("Customer Support Demo", async () => {
+    const result = await supportApp.invoke(
+      {
+        messages: [{
+          role: "user",
+          content: "Hi, I'm customer C-1002. I was charged $29.99 but I thought my plan was free. Can you check my balance and help me get a refund?",
+        }],
+      },
+      { configurable: { thread_id: "support-demo" } }
+    );
+    console.log("support:", lastContent(result.messages));
   });
 
   // -- Human-in-the-Loop --

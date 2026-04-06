@@ -1,7 +1,7 @@
 FROM node:22-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
 FROM node:22-slim
 WORKDIR /app
@@ -22,4 +22,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 USER app
 
-CMD ["npx", "tsx", "src/server/index.ts"]
+CMD ["node", "--import", "tsx", "src/server/index.ts"]
