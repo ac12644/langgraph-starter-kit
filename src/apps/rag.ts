@@ -1,4 +1,4 @@
-import { llm } from "../config/llm";
+import { getLlm } from "../config/llm";
 import { createEmbeddings } from "../config/embeddings";
 import { makeAgent } from "../agents/factory";
 import { makeSupervisor } from "../agents/supervisor";
@@ -26,7 +26,8 @@ export async function initRagStore(
   return _vectorStore;
 }
 
-export function createRagApp(vectorStore: InMemoryVectorStore) {
+export async function createRagApp(vectorStore: InMemoryVectorStore) {
+  const llm = await getLlm();
   const retrievalTool = createRetrievalTool(vectorStore);
 
   const ragAgent = makeAgent({

@@ -1,4 +1,4 @@
-import { llm } from "../config/llm";
+import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
 import { makeSupervisor } from "../agents/supervisor";
 import {
@@ -13,7 +13,9 @@ import {
   escalateToHuman,
 } from "../tools/support";
 
-export function createSupportApp() {
+export async function createSupportApp() {
+  const llm = await getLlm();
+
   const billingAgent = makeAgent({
     name: "billing_agent",
     llm,

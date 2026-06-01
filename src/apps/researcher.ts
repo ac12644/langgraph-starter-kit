@@ -1,9 +1,11 @@
-import { llm } from "../config/llm";
+import { getLlm } from "../config/llm";
 import { webSearch, scrapeUrl } from "../tools/web";
 import { makeAgent } from "../agents/factory";
 import { makeSupervisor } from "../agents/supervisor";
 
-export function createResearcherApp() {
+export async function createResearcherApp() {
+  const llm = await getLlm();
+
   const researcher = makeAgent({
     name: "researcher",
     llm,

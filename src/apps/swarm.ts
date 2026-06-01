@@ -1,11 +1,13 @@
 import type { DynamicStructuredTool } from "@langchain/core/tools";
 import { createHandoffTool } from "@langchain/langgraph-swarm";
-import { llm } from "../config/llm";
+import { getLlm } from "../config/llm";
 import { add, multiply, echo } from "../tools/local";
 import { makeAgent } from "../agents/factory";
 import { makeSwarm, type MakeSwarmParams } from "../agents/swarm";
 
-export function createSwarmApp(mcpTools: DynamicStructuredTool[] = []) {
+export async function createSwarmApp(mcpTools: DynamicStructuredTool[] = []) {
+  const llm = await getLlm();
+
   const alice = makeAgent({
     name: "alice",
     llm,

@@ -1,7 +1,13 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { LLM_PROVIDER, LLM_MODEL, LLM_TEMPERATURE } from "./env";
+import {
+  LLM_PROVIDER,
+  LLM_MODEL,
+  LLM_TEMPERATURE,
+  assertProviderKey,
+  type LlmProvider,
+} from "./env";
 
-const DEFAULTS: Record<string, string> = {
+const DEFAULTS: Record<LlmProvider, string> = {
   openai: "gpt-4o-mini",
   anthropic: "claude-sonnet-4-20250514",
   google: "gemini-2.0-flash",
@@ -9,11 +15,23 @@ const DEFAULTS: Record<string, string> = {
   ollama: "llama3.2",
 };
 
-async function createLlm(): Promise<BaseChatModel> {
-  const model = LLM_MODEL ?? DEFAULTS[LLM_PROVIDER] ?? DEFAULTS.openai;
-  const temperature = LLM_TEMPERATURE;
+export interface LlmOptions {
+  /** Override the env-configured provider. */
+  provider?: LlmProvider;
+  /** Override the model name. */
+  model?: string;
+  /** Override the sampling temperature. */
+  temperature?: number;
+}
 
-  switch (LLM_PROVIDER) {
+async function createLlm(opts: LlmOptions = {}): Promise<BaseChatModel> {
+  const provider = opts.provider ?? LLM_PROVIDER;
+  assertProviderKey(provider);
+
+  const model = opts.model ?? LLM_MODEL ?? DEFAULTS[provider];
+  const temperature = opts.temperature ?? LLM_TEMPERATURE;
+
+  switch (provider) {
     case "anthropic": {
       const { ChatAnthropic } = await import("@langchain/anthropic");
       return new ChatAnthropic({ modelName: model, temperature });
@@ -38,4 +56,25 @@ async function createLlm(): Promise<BaseChatModel> {
   }
 }
 
-export const llm = await createLlm();
+let _default: Promise<BaseChatModel> | undefined;
+
+/**
+ * Returns a chat model.
+ *
+ * Called with no options it returns a memoized, shared instance built from the
+ * env-configured provider — so every agent reuses one model by default and
+ * nothing is constructed until first use (no import-time side effects).
+ *
+ * Pass options to build a distinct model, e.g. a cheap model for routing and a
+ * stronger one for reasoning:
+ *
+ *   const router = await getLlm({ model: "gpt-4o-mini" });
+ *   const worker = await getLlm({ model: "gpt-4o" });
+ */
+export function getLlm(opts?: LlmOptions): Promise<BaseChatModel> {
+  if (!opts || Object.keys(opts).length === 0) {
+    _default ??= createLlm();
+    return _default;
+  }
+  return createLlm(opts);
+}

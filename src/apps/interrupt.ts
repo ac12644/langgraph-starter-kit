@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tool } from "@langchain/core/tools";
 import { interrupt } from "@langchain/langgraph";
-import { llm } from "../config/llm";
+import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
 import { makeSupervisor } from "../agents/supervisor";
 
@@ -41,7 +41,9 @@ const listRecords = tool(
   }
 );
 
-export function createInterruptApp() {
+export async function createInterruptApp() {
+  const llm = await getLlm();
+
   const dbAdmin = makeAgent({
     name: "db_admin",
     llm,

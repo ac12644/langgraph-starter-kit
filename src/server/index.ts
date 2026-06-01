@@ -63,15 +63,15 @@ export async function startServer(): Promise<void> {
   const ragStore = await initRagStore();
 
   // Build apps with MCP tools available
-  const swarmApp = createSwarmApp(mcpTools);
+  const swarmApp = await createSwarmApp(mcpTools);
   const apps = {
     swarm: swarmApp,
-    supervisor: createSupervisorApp(mcpTools) as typeof swarmApp,
-    interrupt: createInterruptApp() as typeof swarmApp,
-    analyst: createAnalystApp() as typeof swarmApp,
-    researcher: createResearcherApp() as typeof swarmApp,
-    rag: createRagApp(ragStore) as typeof swarmApp,
-    support: createSupportApp() as typeof swarmApp,
+    supervisor: (await createSupervisorApp(mcpTools)) as typeof swarmApp,
+    interrupt: (await createInterruptApp()) as typeof swarmApp,
+    analyst: (await createAnalystApp()) as typeof swarmApp,
+    researcher: (await createResearcherApp()) as typeof swarmApp,
+    rag: (await createRagApp(ragStore)) as typeof swarmApp,
+    support: (await createSupportApp()) as typeof swarmApp,
   };
 
   type AppName = keyof typeof apps;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { llm } from "../config/llm";
+import { getLlm } from "../config/llm";
 import { echo } from "../tools/local";
 import { makeAgent } from "../agents/factory";
 import { makeSupervisor } from "../agents/supervisor";
@@ -10,7 +10,9 @@ export const SummarySchema = z.object({
   sentiment: z.enum(["positive", "negative", "neutral"]).describe("Overall sentiment"),
 });
 
-export function createAnalystApp() {
+export async function createAnalystApp() {
+  const llm = await getLlm();
+
   const analyst = makeAgent({
     name: "analyst",
     llm,

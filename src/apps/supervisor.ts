@@ -1,10 +1,12 @@
 import type { DynamicStructuredTool } from "@langchain/core/tools";
-import { llm } from "../config/llm";
+import { getLlm } from "../config/llm";
 import { add, multiply, echo } from "../tools/local";
 import { makeAgent } from "../agents/factory";
 import { makeSupervisor } from "../agents/supervisor";
 
-export function createSupervisorApp(mcpTools: DynamicStructuredTool[] = []) {
+export async function createSupervisorApp(mcpTools: DynamicStructuredTool[] = []) {
+  const llm = await getLlm();
+
   const math = makeAgent({
     name: "math_expert",
     llm,

@@ -34,14 +34,14 @@ async function runDemo(name: string, fn: () => Promise<void>): Promise<void> {
 async function run(): Promise<void> {
   const { tools: mcpTools } = await loadMcpTools();
 
-  const swarmApp = createSwarmApp(mcpTools);
-  const supervisorApp = createSupervisorApp(mcpTools);
-  const interruptApp = createInterruptApp();
-  const analystApp = createAnalystApp();
-  const researcherApp = createResearcherApp();
-  const supportApp = createSupportApp();
+  const swarmApp = await createSwarmApp(mcpTools);
+  const supervisorApp = await createSupervisorApp(mcpTools);
+  const interruptApp = await createInterruptApp();
+  const analystApp = await createAnalystApp();
+  const researcherApp = await createResearcherApp();
+  const supportApp = await createSupportApp();
   const ragStore = await initRagStore();
-  const ragApp = createRagApp(ragStore);
+  const ragApp = await createRagApp(ragStore);
 
   // -- Supervisor --
   await runDemo("Supervisor Demo", async () => {

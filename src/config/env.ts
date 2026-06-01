@@ -21,15 +21,24 @@ const API_KEY_MAP: Record<LlmProvider, string> = {
   ollama: "", // no key needed
 };
 
+/**
+ * Throws if the API key required by `provider` is not set.
+ * Reused by the LLM factory so per-agent provider overrides are
+ * validated the same way as the default provider.
+ */
+export function assertProviderKey(provider: LlmProvider): void {
+  const requiredKey = API_KEY_MAP[provider];
+  if (requiredKey && !process.env[requiredKey]) {
+    throw new Error(
+      `${requiredKey} is required for provider "${provider}" but not set in .env`
+    );
+  }
+}
+
 export const LLM_PROVIDER = resolveProvider();
 
-// Validate API key exists for the selected provider
-const requiredKey = API_KEY_MAP[LLM_PROVIDER];
-if (requiredKey && !process.env[requiredKey]) {
-  throw new Error(
-    `${requiredKey} is required for provider "${LLM_PROVIDER}" but not set in .env`
-  );
-}
+// Fail fast: validate the default provider's key at startup.
+assertProviderKey(LLM_PROVIDER);
 
 export const LLM_MODEL = process.env.LLM_MODEL || undefined;
 export const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? 0);
