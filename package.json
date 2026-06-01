@@ -49,6 +49,9 @@
     "fastify": "^5.8.4",
     "zod": "^4.3.6"
   },
+  "optionalDependencies": {
+    "@langchain/langgraph-checkpoint-postgres": "^1.0.1"
+  },
   "devDependencies": {
     "@types/node": "^25.5.2",
     "tsx": "^4.21.0",

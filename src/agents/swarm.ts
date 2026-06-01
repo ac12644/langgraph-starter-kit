@@ -18,7 +18,7 @@ export interface MakeSwarmParams {
   store?: BaseStore;
 }
 
-export function makeSwarm({
+export async function makeSwarm({
   agents,
   defaultActiveAgent,
   checkpointer,
@@ -31,7 +31,7 @@ export function makeSwarm({
   });
 
   return graph.compile({
-    checkpointer: checkpointer ?? getCheckpointer(),
+    checkpointer: checkpointer ?? (await getCheckpointer()),
     store,
   });
 }

@@ -11,7 +11,7 @@ export interface MakeSupervisorParams extends SupervisorParams {
   store?: BaseStore;
 }
 
-export function makeSupervisor({
+export async function makeSupervisor({
   checkpointer,
   store,
   ...supervisorParams
@@ -19,7 +19,7 @@ export function makeSupervisor({
   const wf = createSupervisor(supervisorParams);
 
   return wf.compile({
-    checkpointer: checkpointer ?? getCheckpointer(),
+    checkpointer: checkpointer ?? (await getCheckpointer()),
     store: store ?? getStore(),
   });
 }
