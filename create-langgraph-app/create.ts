@@ -110,18 +110,18 @@ function generateEnv(config: Config): string {
 
 function generatePackageJson(config: Config): string {
   const deps: Record<string, string> = {
-    "@langchain/core": "^1.1.39",
-    "@langchain/langgraph": "^1.2.7",
-    "@langchain/langgraph-supervisor": "^1.0.1",
+    "@langchain/core": "^1.1.48",
+    "@langchain/langgraph": "^1.3.2",
+    "@langchain/langgraph-supervisor": "^1.0.3",
     "@langchain/mcp-adapters": "^1.1.3",
-    dotenv: "^17.4.0",
-    fastify: "^5.8.4",
+    dotenv: "^17.4.2",
+    fastify: "^5.8.5",
     langchain: "^1.3.0",
-    zod: "^4.3.6",
+    zod: "^4.4.3",
   };
 
   if (config.patterns.includes("swarm")) {
-    deps["@langchain/langgraph-swarm"] = "^1.0.1";
+    deps["@langchain/langgraph-swarm"] = "^1.0.2";
   }
   if (config.patterns.includes("rag")) {
     deps["@langchain/textsplitters"] = "^1.0.1";
@@ -152,10 +152,10 @@ function generatePackageJson(config: Config): string {
       Object.entries(deps).sort(([a], [b]) => a.localeCompare(b))
     ),
     devDependencies: {
-      "@types/node": "^25.5.2",
-      tsx: "^4.21.0",
-      typescript: "^6.0.2",
-      vitest: "^4.1.2",
+      "@types/node": "^25.9.1",
+      tsx: "^4.22.4",
+      typescript: "^6.0.3",
+      vitest: "^4.1.8",
     },
   };
 
@@ -207,6 +207,7 @@ const API_KEY_MAP: Record<LlmProvider, string> = {
 
 export const LLM_PROVIDER = resolveProvider();
 
+// Fail fast: validate the selected provider's key at startup.
 const requiredKey = API_KEY_MAP[LLM_PROVIDER];
 if (requiredKey && !process.env[requiredKey]) {
   throw new Error(\`\${requiredKey} is required for provider "\${LLM_PROVIDER}" but not set in .env\`);
@@ -218,47 +219,58 @@ export const PORT = Number(process.env.PORT ?? 3000);
 `;
 }
 
-function generateLlmConfig(): string {
-  return `import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { LLM_PROVIDER, LLM_MODEL, LLM_TEMPERATURE } from "./env";
-
-const DEFAULTS: Record<string, string> = {
-  openai: "gpt-4o-mini",
-  anthropic: "claude-sonnet-4-20250514",
-  google: "gemini-2.0-flash",
-  groq: "llama-3.3-70b-versatile",
-  ollama: "llama3.2",
+// Per-provider class + constructor shape. The generated llm.ts only imports the
+// provider that was selected, so the scaffold depends on a single LLM SDK.
+const PROVIDER_LLM: Record<
+  string,
+  { pkg: string; className: string; modelArg: "model" | "modelName"; defaultModel: string }
+> = {
+  openai: { pkg: "@langchain/openai", className: "ChatOpenAI", modelArg: "modelName", defaultModel: "gpt-4o-mini" },
+  anthropic: { pkg: "@langchain/anthropic", className: "ChatAnthropic", modelArg: "modelName", defaultModel: "claude-sonnet-4-20250514" },
+  google: { pkg: "@langchain/google-genai", className: "ChatGoogleGenerativeAI", modelArg: "model", defaultModel: "gemini-2.0-flash" },
+  groq: { pkg: "@langchain/groq", className: "ChatGroq", modelArg: "model", defaultModel: "llama-3.3-70b-versatile" },
+  ollama: { pkg: "@langchain/ollama", className: "ChatOllama", modelArg: "model", defaultModel: "llama3.2" },
 };
 
-function createLlm(): BaseChatModel {
-  const model = LLM_MODEL ?? DEFAULTS[LLM_PROVIDER] ?? DEFAULTS.openai;
-  const temperature = LLM_TEMPERATURE;
+function generateLlmConfig(config: Config): string {
+  const p = PROVIDER_LLM[config.provider] ?? PROVIDER_LLM.openai;
+  return `import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import { LLM_MODEL, LLM_TEMPERATURE } from "./env";
 
-  switch (LLM_PROVIDER) {
-    case "anthropic": {
-      const { ChatAnthropic } = require("@langchain/anthropic");
-      return new ChatAnthropic({ modelName: model, temperature });
-    }
-    case "google": {
-      const { ChatGoogleGenerativeAI } = require("@langchain/google-genai");
-      return new ChatGoogleGenerativeAI({ modelName: model, temperature });
-    }
-    case "groq": {
-      const { ChatGroq } = require("@langchain/groq");
-      return new ChatGroq({ modelName: model, temperature });
-    }
-    case "ollama": {
-      const { ChatOllama } = require("@langchain/ollama");
-      return new ChatOllama({ model, temperature });
-    }
-    default: {
-      const { ChatOpenAI } = require("@langchain/openai");
-      return new ChatOpenAI({ modelName: model, temperature });
-    }
-  }
+const DEFAULT_MODEL = "${p.defaultModel}";
+
+export interface LlmOptions {
+  model?: string;
+  temperature?: number;
 }
 
-export const llm = createLlm();
+async function createLlm(opts: LlmOptions = {}): Promise<BaseChatModel> {
+  const model = opts.model ?? LLM_MODEL ?? DEFAULT_MODEL;
+  const temperature = opts.temperature ?? LLM_TEMPERATURE;
+
+  const { ${p.className} } = await import("${p.pkg}");
+  return new ${p.className}({ ${p.modelArg}: model, temperature });
+}
+
+let _default: Promise<BaseChatModel> | undefined;
+
+/**
+ * Returns a chat model.
+ *
+ * Called with no options it returns a memoized, shared instance (nothing is
+ * constructed until first use). Pass options to build a distinct model, e.g. a
+ * cheap router and a strong worker:
+ *
+ *   const router = await getLlm({ model: "${p.defaultModel}" });
+ *   const worker = await getLlm({ model: "<a-stronger-model>" });
+ */
+export function getLlm(opts?: LlmOptions): Promise<BaseChatModel> {
+  if (!opts || Object.keys(opts).length === 0) {
+    _default ??= createLlm();
+    return _default;
+  }
+  return createLlm(opts);
+}
 `;
 }
 
@@ -309,44 +321,6 @@ export function makeSupervisor({ checkpointer, store, ...params }: MakeSuperviso
 `;
 }
 
-function generateSupervisorApp(): string {
-  return `import { z } from "zod";
-import { tool } from "@langchain/core/tools";
-import { llm } from "./config/env";
-import { makeAgent } from "./agents/factory";
-import { makeSupervisor } from "./agents/supervisor";
-
-const add = tool(async ({ a, b }) => String(a + b), {
-  name: "add", description: "Add two numbers",
-  schema: z.object({ a: z.number(), b: z.number() }),
-});
-
-const multiply = tool(async ({ a, b }) => String(a * b), {
-  name: "multiply", description: "Multiply two numbers",
-  schema: z.object({ a: z.number(), b: z.number() }),
-});
-
-export function createApp() {
-  const math = makeAgent({
-    name: "math_expert", llm,
-    tools: [add, multiply],
-    system: "You are a math expert. Use tools to compute answers.",
-  });
-
-  const writer = makeAgent({
-    name: "writer", llm, tools: [],
-    system: "You write crisp, structured answers.",
-  });
-
-  return makeSupervisor({
-    agents: [math, writer], llm,
-    outputMode: "last_message",
-    supervisorName: "supervisor",
-  });
-}
-`;
-}
-
 // Pattern-specific: only files for selected patterns are generated
 function getPatternFiles(
   config: Config
@@ -355,7 +329,7 @@ function getPatternFiles(
 
   // Always include core files
   files.push({ path: "src/config/env.ts", content: generateEnvConfig(config) });
-  files.push({ path: "src/config/llm.ts", content: generateLlmConfig() });
+  files.push({ path: "src/config/llm.ts", content: generateLlmConfig(config) });
   files.push({ path: "src/agents/factory.ts", content: generateAgentFactory() });
   files.push({ path: "src/agents/supervisor.ts", content: generateSupervisorHelper() });
 
@@ -366,7 +340,7 @@ function getPatternFiles(
   if (config.patterns.includes("supervisor")) {
     files.push({
       path: "src/apps/supervisor.ts",
-      content: `import { llm } from "../config/llm";
+      content: `import { getLlm } from "../config/llm";
 import { z } from "zod";
 import { tool } from "@langchain/core/tools";
 import { makeAgent } from "../agents/factory";
@@ -377,7 +351,9 @@ const add = tool(async ({ a, b }) => String(a + b), {
   schema: z.object({ a: z.number(), b: z.number() }),
 });
 
-export function createSupervisorApp() {
+export async function createSupervisorApp() {
+  const llm = await getLlm();
+
   const math = makeAgent({
     name: "math_expert", llm,
     tools: [add],
@@ -399,7 +375,7 @@ export function createSupervisorApp() {
     });
     imports.push(`import { createSupervisorApp } from "./apps/supervisor";`);
     demos.push(`  console.log("=== Supervisor Demo ===");
-  const supervisorApp = createSupervisorApp();
+  const supervisorApp = await createSupervisorApp();
   const sup = await supervisorApp.invoke(
     { messages: [{ role: "user", content: "What is 10 + 15?" }] },
     { configurable: { thread_id: "demo" } }
@@ -466,7 +442,7 @@ export function createHandoffTool({ agentName, description }: { agentName: strin
     });
     files.push({
       path: "src/apps/swarm.ts",
-      content: `import { llm } from "../config/llm";
+      content: `import { getLlm } from "../config/llm";
 import { z } from "zod";
 import { tool } from "@langchain/core/tools";
 import { makeAgent } from "../agents/factory";
@@ -483,7 +459,9 @@ const multiply = tool(async ({ a, b }) => String(a * b), {
   schema: z.object({ a: z.number(), b: z.number() }),
 });
 
-export function createSwarmApp() {
+export async function createSwarmApp() {
+  const llm = await getLlm();
+
   const alice = makeAgent({
     name: "alice", llm,
     tools: [add, createHandoffTool({ agentName: "bob" })],
@@ -505,7 +483,7 @@ export function createSwarmApp() {
     });
     imports.push(`import { createSwarmApp } from "./apps/swarm";`);
     demos.push(`  console.log("\\n=== Swarm Demo ===");
-  const swarmApp = createSwarmApp();
+  const swarmApp = await createSwarmApp();
   const swarm = await swarmApp.invoke(
     { messages: [{ role: "user", content: "add 5 and 7, then talk to bob and multiply by 3" }] },
     { configurable: { thread_id: "swarm-demo" } }
@@ -519,7 +497,7 @@ export function createSwarmApp() {
       content: `import { z } from "zod";
 import { tool } from "@langchain/core/tools";
 import { interrupt } from "@langchain/langgraph";
-import { llm } from "../config/llm";
+import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
 import { makeSupervisor } from "../agents/supervisor";
 
@@ -541,7 +519,9 @@ const deleteRecord = tool(
   }
 );
 
-export function createInterruptApp() {
+export async function createInterruptApp() {
+  const llm = await getLlm();
+
   const dbAdmin = makeAgent({
     name: "db_admin", llm,
     tools: [deleteRecord],
@@ -559,7 +539,7 @@ export function createInterruptApp() {
     imports.push(`import { Command } from "@langchain/langgraph";`);
     imports.push(`import { createInterruptApp } from "./apps/interrupt";`);
     demos.push(`  console.log("\\n=== Human-in-the-Loop Demo ===");
-  const interruptApp = createInterruptApp();
+  const interruptApp = await createInterruptApp();
   const hitlCfg = { configurable: { thread_id: "hitl-demo" } };
   await interruptApp.invoke(
     { messages: [{ role: "user", content: "delete record rec_2" }] },
@@ -577,7 +557,7 @@ export function createInterruptApp() {
     files.push({
       path: "src/apps/analyst.ts",
       content: `import { z } from "zod";
-import { llm } from "../config/llm";
+import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
 import { makeSupervisor } from "../agents/supervisor";
 
@@ -587,7 +567,9 @@ const SummarySchema = z.object({
   sentiment: z.enum(["positive", "negative", "neutral"]),
 });
 
-export function createAnalystApp() {
+export async function createAnalystApp() {
+  const llm = await getLlm();
+
   const analyst = makeAgent({
     name: "analyst", llm, tools: [],
     system: "Analyze text and produce structured summaries.",
@@ -604,7 +586,7 @@ export function createAnalystApp() {
     });
     imports.push(`import { createAnalystApp } from "./apps/analyst";`);
     demos.push(`  console.log("\\n=== Structured Output Demo ===");
-  const analystApp = createAnalystApp();
+  const analystApp = await createAnalystApp();
   const analysis = await analystApp.invoke(
     { messages: [{ role: "user", content: "Analyze: Revenue grew 25% but churn increased 8%." }] },
     { configurable: { thread_id: "analyst-demo" } }
@@ -615,14 +597,16 @@ export function createAnalystApp() {
   if (config.patterns.includes("rag")) {
     files.push({
       path: "src/apps/rag.ts",
-      content: `import { llm } from "../config/llm";
+      content: `import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
 import { makeSupervisor } from "../agents/supervisor";
 // TODO: Add your vector store, embeddings, and retrieval tool here.
 // See the full starter kit for a complete RAG implementation:
 // https://github.com/ac12644/langgraph-starter-kit
 
-export function createRagApp() {
+export async function createRagApp() {
+  const llm = await getLlm();
+
   const ragAgent = makeAgent({
     name: "rag_agent", llm, tools: [],
     system: "You are a knowledgeable assistant. Answer questions based on your knowledge.",
@@ -638,7 +622,7 @@ export function createRagApp() {
     });
     imports.push(`import { createRagApp } from "./apps/rag";`);
     demos.push(`  console.log("\\n=== RAG Demo ===");
-  const ragApp = createRagApp();
+  const ragApp = await createRagApp();
   const rag = await ragApp.invoke(
     { messages: [{ role: "user", content: "What is RAG and how does it work?" }] },
     { configurable: { thread_id: "rag-demo" } }
