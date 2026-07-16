@@ -2,7 +2,6 @@ import { z } from "zod";
 import { tool } from "@langchain/core/tools";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
-import { getCheckpointer } from "../config/checkpointer";
 import { makeAgent, type AgentGraph } from "./factory";
 
 /**
@@ -73,11 +72,17 @@ export async function makeSupervisor({
     `your tools (${subagents.map((s) => s.name).join(", ")}) and answer ` +
     "the user only once the delegated work is done.";
 
+  // Lazy import: config/env validates provider API keys at import time,
+  // which callers supplying their own checkpointer (e.g. tests) shouldn't
+  // have to satisfy.
+  const resolvedCheckpointer =
+    checkpointer ?? (await (await import("../config/checkpointer")).getCheckpointer());
+
   return makeAgent({
     name: supervisorName,
     llm,
     tools: subagents.map(subagentTool),
     system: prompt ?? defaultPrompt,
-    checkpointer: checkpointer ?? (await getCheckpointer()),
+    checkpointer: resolvedCheckpointer,
   });
 }

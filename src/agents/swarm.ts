@@ -8,7 +8,6 @@ import {
   END,
 } from "@langchain/langgraph";
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
-import { getCheckpointer } from "../config/checkpointer";
 import type { AgentGraph } from "./factory";
 
 /**
@@ -82,7 +81,13 @@ export async function makeSwarm({
     );
   }
 
+  // Lazy import: config/env validates provider API keys at import time,
+  // which callers supplying their own checkpointer (e.g. tests) shouldn't
+  // have to satisfy.
+  const resolvedCheckpointer =
+    checkpointer ?? (await (await import("../config/checkpointer")).getCheckpointer());
+
   return builder.compile({
-    checkpointer: checkpointer ?? (await getCheckpointer()),
+    checkpointer: resolvedCheckpointer,
   });
 }
