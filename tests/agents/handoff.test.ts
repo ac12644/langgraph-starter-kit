@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createHandoffTool } from "@langchain/langgraph-swarm";
+import { createHandoffTool } from "../../src/agents/handoff";
 
 describe("createHandoffTool", () => {
   it("creates a tool with the correct name", () => {

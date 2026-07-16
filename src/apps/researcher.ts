@@ -29,13 +29,25 @@ export async function createResearcherApp() {
   });
 
   return makeSupervisor({
-    agents: [researcher, writer],
+    subagents: [
+      {
+        name: "researcher",
+        description:
+          "Research a topic on the web and return findings with sources.",
+        agent: researcher,
+      },
+      {
+        name: "writer",
+        description:
+          "Turn research notes into a polished markdown report. Pass the full findings in the task.",
+        agent: writer,
+      },
+    ],
     llm,
-    outputMode: "last_message",
     supervisorName: "research_supervisor",
     prompt:
-      "You coordinate a research team. Route research tasks to the researcher first, " +
-      "then send the findings to the writer for a polished report. " +
+      "You coordinate a research team. Delegate research tasks to the researcher first, " +
+      "then pass the findings to the writer for a polished report. " +
       "Only respond to the user once the writer has produced the final report.",
   });
 }

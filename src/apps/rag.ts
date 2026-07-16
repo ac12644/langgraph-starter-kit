@@ -1,7 +1,7 @@
 import { getLlm } from "../config/llm";
+import { getCheckpointer } from "../config/checkpointer";
 import { createEmbeddings } from "../config/embeddings";
 import { makeAgent } from "../agents/factory";
-import { makeSupervisor } from "../agents/supervisor";
 import {
   buildVectorStore,
   createRetrievalTool,
@@ -30,7 +30,8 @@ export async function createRagApp(vectorStore: InMemoryVectorStore) {
   const llm = await getLlm();
   const retrievalTool = createRetrievalTool(vectorStore);
 
-  const ragAgent = makeAgent({
+  // A single agent with a retrieval tool — no supervisor layer needed.
+  return makeAgent({
     name: "rag_agent",
     llm,
     tools: [retrievalTool],
@@ -41,12 +42,6 @@ export async function createRagApp(vectorStore: InMemoryVectorStore) {
       "doesn't contain relevant information, say so clearly.",
       "Cite which parts of the retrieved context support your answer.",
     ].join("\n"),
-  });
-
-  return makeSupervisor({
-    agents: [ragAgent],
-    llm,
-    outputMode: "last_message",
-    supervisorName: "rag_supervisor",
+    checkpointer: await getCheckpointer(),
   });
 }

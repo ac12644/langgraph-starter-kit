@@ -2,8 +2,8 @@ import { z } from "zod";
 import { tool } from "@langchain/core/tools";
 import { interrupt } from "@langchain/langgraph";
 import { getLlm } from "../config/llm";
+import { getCheckpointer } from "../config/checkpointer";
 import { makeAgent } from "../agents/factory";
-import { makeSupervisor } from "../agents/supervisor";
 
 const deleteRecord = tool(
   async (args) => {
@@ -44,18 +44,14 @@ const listRecords = tool(
 export async function createInterruptApp() {
   const llm = await getLlm();
 
-  const dbAdmin = makeAgent({
+  // A single agent with a checkpointer — interrupt() inside delete_record
+  // pauses the graph; resume with Command({ resume: "yes" }) on the thread.
+  return makeAgent({
     name: "db_admin",
     llm,
     tools: [listRecords, deleteRecord],
     system:
       "You are a database administrator. You can list and delete records. When asked to delete a record, use the delete_record tool immediately — the tool itself handles approval.",
-  });
-
-  return makeSupervisor({
-    agents: [dbAdmin],
-    llm,
-    outputMode: "last_message",
-    supervisorName: "interrupt_supervisor",
+    checkpointer: await getCheckpointer(),
   });
 }

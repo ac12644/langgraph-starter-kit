@@ -11,7 +11,7 @@
   <a href="https://github.com/ac12644/langgraph-starter-kit/actions/workflows/ci.yml"><img src="https://github.com/ac12644/langgraph-starter-kit/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" /></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.9+-3178C6.svg" alt="TypeScript" /></a>
-  <a href="https://langchain-ai.github.io/langgraphjs/"><img src="https://img.shields.io/badge/LangGraph-1.2+-7C3AED.svg" alt="LangGraph" /></a>
+  <a href="https://langchain-ai.github.io/langgraphjs/"><img src="https://img.shields.io/badge/LangGraph-1.4+-7C3AED.svg" alt="LangGraph" /></a>
   <a href="https://github.com/ac12644/langgraph-starter-kit/stargazers"><img src="https://img.shields.io/github/stars/ac12644/langgraph-starter-kit?style=social" alt="Stars" /></a>
 </p>
 
@@ -95,6 +95,7 @@ graph TD
 | | Feature | Description |
 |---|---|---|
 | **Patterns** | 7 Agent Patterns | Swarm, Supervisor, HITL, Structured Output, Research, RAG, Customer Support |
+| **Modern** | v1 Agent APIs | Built on LangChain's `createAgent` with the subagents & handoffs patterns — no deprecated packages |
 | **CLI** | Scaffolder | `npx create-langgraph-app` — interactive project generator |
 | **Providers** | 5 LLM Providers | OpenAI, Anthropic, Google, Groq, Ollama — switch with one env var |
 | **Tools** | MCP Integration | Connect external tools via Model Context Protocol |
@@ -103,7 +104,7 @@ graph TD
 | **Observe** | LangSmith Tracing | Full observability with one env var |
 | **Persist** | Memory + Postgres | In-memory for dev, PostgreSQL-ready for production |
 | **Deploy** | Docker + CI | Docker Compose with Postgres, GitHub Actions CI |
-| **Test** | 34+ Tests | Tools, config, agents — all tested with vitest |
+| **Test** | 39 Tests | Tools, config, agents, offline multi-agent flows — all tested with vitest |
 
 ## Quick Start
 
@@ -170,6 +171,8 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ## Agent Patterns
 
+> **Architecture note:** The `@langchain/langgraph-supervisor` and `@langchain/langgraph-swarm` packages are no longer actively maintained upstream. This kit implements the officially recommended replacements: the **subagents** pattern (a `createAgent` supervisor calling workers as tools) and the **handoffs** pattern (agents as graph nodes with `Command`-based transfer tools). Same API surface, no deprecated dependencies.
+
 ### 1. Supervisor
 
 A central coordinator routes tasks to specialized workers. Best for: **structured workflows with clear task delegation**.
@@ -208,7 +211,7 @@ curl -X POST http://localhost:3000/interrupt/resume \
 
 ### 4. Structured Output
 
-Returns typed JSON validated by Zod. Best for: **extracting structured data — summaries, classifications, entities**.
+Returns typed JSON validated by Zod (in the `structuredResponse` field of the response). Best for: **extracting structured data — summaries, classifications, entities**.
 
 ```bash
 curl -X POST http://localhost:3000/analyst/invoke \
@@ -325,10 +328,10 @@ src/
 │   ├── support.ts          # Customer support tools
 │   └── mcp.ts              # MCP external tool loader
 ├── agents/
-│   ├── factory.ts          # makeAgent() — agent builder
-│   ├── supervisor.ts       # makeSupervisor() wrapper
-│   ├── swarm.ts            # makeSwarm() wrapper
-│   └── handoff.ts          # createHandoffTool() — transfers
+│   ├── factory.ts          # makeAgent() — createAgent wrapper
+│   ├── supervisor.ts       # makeSupervisor() — subagents-as-tools pattern
+│   ├── swarm.ts            # makeSwarm() — handoffs pattern (StateGraph)
+│   └── handoff.ts          # createHandoffTool() — Command-based transfers
 ├── apps/
 │   ├── supervisor.ts       # Supervisor pattern
 │   ├── swarm.ts            # Swarm pattern
@@ -368,11 +371,13 @@ Create a file, wire it up, done:
 
 ```typescript
 // src/apps/my-agent.ts
-import { llm } from "../config/llm";
+import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
 import { makeSupervisor } from "../agents/supervisor";
 
-export function createMyApp() {
+export async function createMyApp() {
+  const llm = await getLlm();
+
   const agent = makeAgent({
     name: "my_agent",
     llm,
@@ -381,9 +386,14 @@ export function createMyApp() {
   });
 
   return makeSupervisor({
-    agents: [agent],
+    subagents: [
+      {
+        name: "my_agent",
+        description: "When the supervisor should delegate to this agent.",
+        agent,
+      },
+    ],
     llm,
-    outputMode: "last_message",
     supervisorName: "my_supervisor",
   });
 }

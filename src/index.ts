@@ -72,7 +72,8 @@ async function run(): Promise<void> {
       },
       { configurable: { thread_id: "analyst-demo" } }
     );
-    console.log("analyst:", lastContent(result.messages));
+    const structured = (result as Record<string, unknown>).structuredResponse;
+    console.log("analyst:", structured ? JSON.stringify(structured) : lastContent(result.messages));
   });
 
   // -- RAG --

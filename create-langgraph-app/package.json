@@ -1,6 +1,6 @@
 {
   "name": "create-langgraph-app",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Scaffold a new LangGraph multi-agent project in seconds",
   "type": "module",
   "bin": {

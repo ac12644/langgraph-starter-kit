@@ -78,11 +78,13 @@ Here's the minimal template:
 
 ```typescript
 // src/apps/my-agent.ts
-import { llm } from "../config/llm";
+import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
 import { makeSupervisor } from "../agents/supervisor";
 
-export function createMyApp() {
+export async function createMyApp() {
+  const llm = await getLlm();
+
   const agent = makeAgent({
     name: "my_agent",
     llm,
@@ -91,9 +93,14 @@ export function createMyApp() {
   });
 
   return makeSupervisor({
-    agents: [agent],
+    subagents: [
+      {
+        name: "my_agent",
+        description: "When the supervisor should delegate to this agent.",
+        agent,
+      },
+    ],
     llm,
-    outputMode: "last_message",
     supervisorName: "my_supervisor",
   });
 }

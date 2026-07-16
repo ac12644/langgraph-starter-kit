@@ -22,9 +22,20 @@ export async function createSupervisorApp(mcpTools: DynamicStructuredTool[] = []
   });
 
   return makeSupervisor({
-    agents: [math, writer],
+    subagents: [
+      {
+        name: "math_expert",
+        description: "Delegate calculations to the math expert.",
+        agent: math,
+      },
+      {
+        name: "writer",
+        description:
+          "Delegate writing to the writer. Include all facts the text should contain.",
+        agent: writer,
+      },
+    ],
     llm,
-    outputMode: "last_message",
     supervisorName: "supervisor",
   });
 }

@@ -1,8 +1,8 @@
 import { z } from "zod";
+import { toolStrategy } from "langchain";
 import { getLlm } from "../config/llm";
-import { echo } from "../tools/local";
+import { getCheckpointer } from "../config/checkpointer";
 import { makeAgent } from "../agents/factory";
-import { makeSupervisor } from "../agents/supervisor";
 
 export const SummarySchema = z.object({
   title: z.string().describe("A short title for the summary"),
@@ -13,19 +13,17 @@ export const SummarySchema = z.object({
 export async function createAnalystApp() {
   const llm = await getLlm();
 
-  const analyst = makeAgent({
+  // A single agent — no supervisor layer needed. The structured result is
+  // returned on the `structuredResponse` key of the final state.
+  return makeAgent({
     name: "analyst",
     llm,
-    tools: [echo],
+    tools: [],
     system:
       "You analyze text and produce structured summaries with key points and sentiment.",
-    responseFormat: SummarySchema,
-  });
-
-  return makeSupervisor({
-    agents: [analyst],
-    llm,
-    outputMode: "last_message",
-    supervisorName: "analyst_supervisor",
+    // toolStrategy works with every provider; models with native structured
+    // output support could use providerStrategy instead.
+    responseFormat: toolStrategy(SummarySchema),
+    checkpointer: await getCheckpointer(),
   });
 }

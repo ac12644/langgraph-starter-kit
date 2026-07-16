@@ -110,19 +110,15 @@ function generateEnv(config: Config): string {
 
 function generatePackageJson(config: Config): string {
   const deps: Record<string, string> = {
-    "@langchain/core": "^1.1.48",
-    "@langchain/langgraph": "^1.3.2",
-    "@langchain/langgraph-supervisor": "^1.0.3",
+    "@langchain/core": "^1.2.3",
+    "@langchain/langgraph": "^1.4.8",
     "@langchain/mcp-adapters": "^1.1.3",
     dotenv: "^17.4.2",
-    fastify: "^5.8.5",
-    langchain: "^1.3.0",
+    fastify: "^5.10.0",
+    langchain: "^1.5.3",
     zod: "^4.4.3",
   };
 
-  if (config.patterns.includes("swarm")) {
-    deps["@langchain/langgraph-swarm"] = "^1.0.2";
-  }
   if (config.patterns.includes("rag")) {
     deps["@langchain/textsplitters"] = "^1.0.1";
   }
@@ -275,47 +271,123 @@ export function getLlm(opts?: LlmOptions): Promise<BaseChatModel> {
 }
 
 function generateAgentFactory(): string {
-  return `import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import type { StructuredToolInterface } from "@langchain/core/tools";
-import { createReactAgent, type CreateReactAgentParams } from "@langchain/langgraph/prebuilt";
+  return `import { createAgent, type ResponseFormat, type TypedToolStrategy } from "langchain";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
+
+type CreateAgentParams = Parameters<typeof createAgent>[0];
 
 export interface MakeAgentParams {
   name: string;
   llm: BaseChatModel;
-  tools?: StructuredToolInterface[];
+  tools?: CreateAgentParams["tools"];
   system?: string;
-  responseFormat?: CreateReactAgentParams["responseFormat"];
+  responseFormat?: ResponseFormat | TypedToolStrategy<Record<string, unknown>>;
+  /**
+   * Only the outermost agent of a multi-agent setup should get a
+   * checkpointer — subagents inherit it at runtime, which is what lets
+   * interrupt() calls bubble up to the top-level graph.
+   */
+  checkpointer?: BaseCheckpointSaver;
 }
 
-export function makeAgent({ name, llm, tools = [], system, responseFormat }: MakeAgentParams) {
-  return createReactAgent({
+/** Wraps LangChain's createAgent with a simpler interface. */
+export function makeAgent({
+  name,
+  llm,
+  tools = [],
+  system,
+  responseFormat,
+  checkpointer,
+}: MakeAgentParams) {
+  return createAgent({
     name,
-    llm,
+    model: llm,
     tools,
-    ...(system ? { prompt: system } : {}),
+    ...(system ? { systemPrompt: system } : {}),
     ...(responseFormat ? { responseFormat } : {}),
+    ...(checkpointer ? { checkpointer } : {}),
   });
 }
+
+export type AgentGraph = ReturnType<typeof makeAgent>;
 `;
 }
 
 function generateSupervisorHelper(): string {
-  return `import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import type { BaseCheckpointSaver, BaseStore } from "@langchain/langgraph-checkpoint";
-import { createSupervisor } from "@langchain/langgraph-supervisor";
-import { MemorySaver, InMemoryStore } from "@langchain/langgraph";
+  return `import { z } from "zod";
+import { tool } from "@langchain/core/tools";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
+import { MemorySaver } from "@langchain/langgraph";
+import { makeAgent, type AgentGraph } from "./factory";
 
-type SupervisorParams = Parameters<typeof createSupervisor>[0];
+/**
+ * Supervisor via the "subagents" pattern: a main agent coordinates workers
+ * by calling them as tools. Subagents are stateless and run in isolated
+ * context windows; only the supervisor gets a checkpointer, so interrupt()
+ * inside a subagent tool pauses the whole graph.
+ */
 
-export interface MakeSupervisorParams extends SupervisorParams {
-  checkpointer?: BaseCheckpointSaver;
-  store?: BaseStore;
+export interface SubagentSpec {
+  /** Tool name the supervisor calls, e.g. "math_expert". */
+  name: string;
+  /** Tells the supervisor's model when to delegate to this agent. */
+  description: string;
+  agent: AgentGraph;
 }
 
-export function makeSupervisor({ checkpointer, store, ...params }: MakeSupervisorParams) {
-  return createSupervisor(params).compile({
+/** Wraps a compiled agent as a tool the supervisor can call. */
+export function subagentTool({ name, description, agent }: SubagentSpec) {
+  return tool(
+    async ({ task }) => {
+      const result = await agent.invoke({
+        messages: [{ role: "user", content: task }],
+      });
+      const last = result.messages.at(-1);
+      if (!last) return "(no response)";
+      return typeof last.content === "string"
+        ? last.content
+        : JSON.stringify(last.content);
+    },
+    {
+      name,
+      description,
+      schema: z.object({
+        task: z
+          .string()
+          .describe("A self-contained task with all context the agent needs"),
+      }),
+    }
+  );
+}
+
+export interface MakeSupervisorParams {
+  subagents: SubagentSpec[];
+  llm: BaseChatModel;
+  supervisorName?: string;
+  prompt?: string;
+  checkpointer?: BaseCheckpointSaver;
+}
+
+export function makeSupervisor({
+  subagents,
+  llm,
+  supervisorName = "supervisor",
+  prompt,
+  checkpointer,
+}: MakeSupervisorParams) {
+  const defaultPrompt =
+    "You coordinate a team of specialists. Delegate work to them via " +
+    \`your tools (\${subagents.map((s) => s.name).join(", ")}) and answer \` +
+    "the user only once the delegated work is done.";
+
+  return makeAgent({
+    name: supervisorName,
+    llm,
+    tools: subagents.map(subagentTool),
+    system: prompt ?? defaultPrompt,
     checkpointer: checkpointer ?? new MemorySaver(),
-    store: store ?? new InMemoryStore(),
   });
 }
 `;
@@ -366,8 +438,11 @@ export async function createSupervisorApp() {
   });
 
   return makeSupervisor({
-    agents: [math, writer], llm,
-    outputMode: "last_message",
+    subagents: [
+      { name: "math_expert", description: "Delegate calculations to the math expert.", agent: math },
+      { name: "writer", description: "Delegate writing. Include all facts the text should contain.", agent: writer },
+    ],
+    llm,
     supervisorName: "supervisor",
   });
 }
@@ -386,56 +461,131 @@ export async function createSupervisorApp() {
   if (config.patterns.includes("swarm")) {
     files.push({
       path: "src/agents/swarm.ts",
-      content: `import type { BaseCheckpointSaver, BaseStore } from "@langchain/langgraph-checkpoint";
-import { MessagesAnnotation, Annotation, MemorySaver } from "@langchain/langgraph";
-import { createSwarm } from "@langchain/langgraph-swarm";
+      content: `import { z } from "zod";
+import { AIMessage } from "@langchain/core/messages";
+import {
+  StateGraph,
+  StateSchema,
+  MessagesValue,
+  MemorySaver,
+  START,
+  END,
+} from "@langchain/langgraph";
+import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
+import type { AgentGraph } from "./factory";
 
-export const SwarmState = Annotation.Root({
-  ...MessagesAnnotation.spec,
-  activeAgent: Annotation<string>(),
+/**
+ * Swarm via the "handoffs" pattern: each agent is a graph node, and handoff
+ * tools (see ./handoff.ts) jump between nodes while flipping activeAgent.
+ * activeAgent is checkpointed, so the conversation resumes with whichever
+ * agent last held it.
+ */
+
+export const SwarmState = new StateSchema({
+  messages: MessagesValue,
+  activeAgent: z.string().optional(),
 });
 
-type SwarmParams = Parameters<typeof createSwarm>[0];
+export type SwarmStateType = typeof SwarmState.State;
 
-export function makeSwarm({
-  agents, defaultActiveAgent, checkpointer,
-}: {
-  agents: SwarmParams["agents"];
+export interface SwarmAgentSpec {
+  /** Node name; handoff tools reference it as transfer_to_<name>. */
+  name: string;
+  agent: AgentGraph;
+}
+
+export interface MakeSwarmParams {
+  agents: SwarmAgentSpec[];
   defaultActiveAgent: string;
   checkpointer?: BaseCheckpointSaver;
-  store?: BaseStore;
-}) {
-  return createSwarm({ agents, defaultActiveAgent, stateSchema: SwarmState })
-    .compile({ checkpointer: checkpointer ?? new MemorySaver() });
+}
+
+export function makeSwarm({
+  agents,
+  defaultActiveAgent,
+  checkpointer,
+}: MakeSwarmParams) {
+  const names = agents.map((a) => a.name);
+
+  const routeToActive = (state: SwarmStateType) =>
+    state.activeAgent ?? defaultActiveAgent;
+
+  // After an agent runs: done if it answered (no pending tool calls);
+  // otherwise a handoff moved activeAgent, so continue there.
+  const routeAfterAgent = (state: SwarmStateType) => {
+    const last = state.messages.at(-1);
+    if (last && AIMessage.isInstance(last) && !last.tool_calls?.length) {
+      return END;
+    }
+    return state.activeAgent ?? defaultActiveAgent;
+  };
+
+  // Node names are only known at runtime, so the graph is built with
+  // string keys and the routers are cast to the node-name union.
+  let builder = new StateGraph(SwarmState) as StateGraph<
+    typeof SwarmState,
+    SwarmStateType
+  >;
+  for (const { name, agent } of agents) {
+    builder = builder.addNode(name, async (state: SwarmStateType) =>
+      agent.invoke(state)
+    ) as typeof builder;
+  }
+
+  builder.addConditionalEdges(START, routeToActive as never, names as never);
+  for (const name of names) {
+    builder.addConditionalEdges(
+      name as never,
+      routeAfterAgent as never,
+      [...names, END] as never
+    );
+  }
+
+  return builder.compile({
+    checkpointer: checkpointer ?? new MemorySaver(),
+  });
 }
 `,
     });
     files.push({
       path: "src/agents/handoff.ts",
       content: `import { z } from "zod";
-import { ToolMessage } from "@langchain/core/messages";
-import { tool } from "@langchain/core/tools";
-import { Command, MessagesAnnotation, getCurrentTaskInput } from "@langchain/langgraph";
+import { tool, type ToolRuntime } from "@langchain/core/tools";
+import { AIMessage, ToolMessage } from "@langchain/core/messages";
+import { Command } from "@langchain/langgraph";
+import type { SwarmStateType } from "./swarm";
 
+/**
+ * Handoff tool for the handoffs pattern. Returns a Command targeting the
+ * PARENT graph: it flips activeAgent and jumps to the target agent's node.
+ * The calling agent's last AI message (the one containing this tool call)
+ * plus a ToolMessage are copied into parent state so the conversation
+ * history stays well-formed.
+ */
 export function createHandoffTool({ agentName, description }: { agentName: string; description?: string }) {
-  const toolName = \`transfer_to_\${agentName.replace(/\\s+/g, "_").toLowerCase()}\`;
-
   return tool(
-    async (_args, cfg) => {
-      const state = getCurrentTaskInput() as (typeof MessagesAnnotation)["State"];
-      const messages = state.messages ?? [];
-      const tm = new ToolMessage({
+    async (_, runtime: ToolRuntime<SwarmStateType>) => {
+      const lastAiMessage = [...(runtime.state.messages ?? [])]
+        .reverse()
+        .find(AIMessage.isInstance);
+      const transferMessage = new ToolMessage({
         content: \`Transferred to \${agentName}\`,
-        name: toolName,
-        tool_call_id: cfg.toolCall.id,
+        tool_call_id: runtime.toolCallId ?? "",
       });
       return new Command({
         goto: agentName,
+        update: {
+          activeAgent: agentName,
+          messages: [lastAiMessage, transferMessage].filter(Boolean),
+        },
         graph: Command.PARENT,
-        update: { messages: messages.concat(tm), activeAgent: agentName },
       });
     },
-    { name: toolName, description: description ?? \`Ask \${agentName} for help\`, schema: z.object({}) }
+    {
+      name: \`transfer_to_\${agentName}\`,
+      description: description ?? \`Transfer the conversation to \${agentName}.\`,
+      schema: z.object({}),
+    }
   );
 }
 `,
@@ -447,7 +597,7 @@ import { z } from "zod";
 import { tool } from "@langchain/core/tools";
 import { makeAgent } from "../agents/factory";
 import { createHandoffTool } from "../agents/handoff";
-import { makeSwarm, type SwarmState } from "../agents/swarm";
+import { makeSwarm } from "../agents/swarm";
 
 const add = tool(async ({ a, b }) => String(a + b), {
   name: "add", description: "Add two numbers",
@@ -475,7 +625,10 @@ export async function createSwarmApp() {
   });
 
   return makeSwarm({
-    agents: [alice, bob] as any,
+    agents: [
+      { name: "alice", agent: alice },
+      { name: "bob", agent: bob },
+    ],
     defaultActiveAgent: "alice",
   });
 }
@@ -496,10 +649,9 @@ export async function createSwarmApp() {
       path: "src/apps/interrupt.ts",
       content: `import { z } from "zod";
 import { tool } from "@langchain/core/tools";
-import { interrupt } from "@langchain/langgraph";
+import { interrupt, MemorySaver } from "@langchain/langgraph";
 import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
-import { makeSupervisor } from "../agents/supervisor";
 
 const deleteRecord = tool(
   async (args) => {
@@ -522,16 +674,13 @@ const deleteRecord = tool(
 export async function createInterruptApp() {
   const llm = await getLlm();
 
-  const dbAdmin = makeAgent({
+  // A single agent with a checkpointer — interrupt() inside delete_record
+  // pauses the graph; resume with Command({ resume: "yes" }) on the thread.
+  return makeAgent({
     name: "db_admin", llm,
     tools: [deleteRecord],
     system: "You are a database administrator.",
-  });
-
-  return makeSupervisor({
-    agents: [dbAdmin], llm,
-    outputMode: "last_message",
-    supervisorName: "interrupt_supervisor",
+    checkpointer: new MemorySaver(),
   });
 }
 `,
@@ -557,9 +706,10 @@ export async function createInterruptApp() {
     files.push({
       path: "src/apps/analyst.ts",
       content: `import { z } from "zod";
+import { toolStrategy } from "langchain";
+import { MemorySaver } from "@langchain/langgraph";
 import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
-import { makeSupervisor } from "../agents/supervisor";
 
 const SummarySchema = z.object({
   title: z.string(),
@@ -570,16 +720,14 @@ const SummarySchema = z.object({
 export async function createAnalystApp() {
   const llm = await getLlm();
 
-  const analyst = makeAgent({
+  // The structured result is returned on the structuredResponse key of the
+  // final state. toolStrategy works with every provider; models with native
+  // structured output support could use providerStrategy instead.
+  return makeAgent({
     name: "analyst", llm, tools: [],
     system: "Analyze text and produce structured summaries.",
-    responseFormat: SummarySchema,
-  });
-
-  return makeSupervisor({
-    agents: [analyst], llm,
-    outputMode: "last_message",
-    supervisorName: "analyst_supervisor",
+    responseFormat: toolStrategy(SummarySchema),
+    checkpointer: new MemorySaver(),
   });
 }
 `,
@@ -591,15 +739,16 @@ export async function createAnalystApp() {
     { messages: [{ role: "user", content: "Analyze: Revenue grew 25% but churn increased 8%." }] },
     { configurable: { thread_id: "analyst-demo" } }
   );
-  console.log("Result:", analysis.messages.at(-1)?.content);`);
+  const structured = (analysis as Record<string, unknown>).structuredResponse;
+  console.log("Result:", JSON.stringify(structured ?? analysis.messages.at(-1)?.content));`);
   }
 
   if (config.patterns.includes("rag")) {
     files.push({
       path: "src/apps/rag.ts",
-      content: `import { getLlm } from "../config/llm";
+      content: `import { MemorySaver } from "@langchain/langgraph";
+import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
-import { makeSupervisor } from "../agents/supervisor";
 // TODO: Add your vector store, embeddings, and retrieval tool here.
 // See the full starter kit for a complete RAG implementation:
 // https://github.com/ac12644/langgraph-starter-kit
@@ -607,15 +756,10 @@ import { makeSupervisor } from "../agents/supervisor";
 export async function createRagApp() {
   const llm = await getLlm();
 
-  const ragAgent = makeAgent({
+  return makeAgent({
     name: "rag_agent", llm, tools: [],
     system: "You are a knowledgeable assistant. Answer questions based on your knowledge.",
-  });
-
-  return makeSupervisor({
-    agents: [ragAgent], llm,
-    outputMode: "last_message",
-    supervisorName: "rag_supervisor",
+    checkpointer: new MemorySaver(),
   });
 }
 `,

@@ -29,6 +29,33 @@ interface StreamEvent {
   node?: string;
 }
 
+interface StateLike {
+  values?: unknown;
+  next?: string[];
+  tasks?: unknown[];
+  createdAt?: string | null;
+}
+
+/**
+ * The routes only need this structural slice of a compiled graph. The apps
+ * are a mix of `createAgent` agents and a custom StateGraph (swarm), whose
+ * full generic types don't unify — this interface is what they share.
+ */
+interface AppGraph {
+  invoke(
+    input: unknown,
+    config?: unknown
+  ): Promise<{ messages: BaseMessage[] } & Record<string, unknown>>;
+  stream(
+    input: unknown,
+    config?: unknown
+  ): Promise<AsyncIterable<[unknown, { langgraph_node?: string } | undefined]>>;
+  getState(config: unknown): Promise<StateLike | undefined>;
+  getStateHistory(config: unknown): AsyncIterable<StateLike>;
+}
+
+const asApp = (graph: unknown) => graph as AppGraph;
+
 // -- Helpers --
 
 function parseBody<T>(raw: unknown): T {
@@ -63,15 +90,14 @@ export async function startServer(): Promise<void> {
   const ragStore = await initRagStore();
 
   // Build apps with MCP tools available
-  const swarmApp = await createSwarmApp(mcpTools);
   const apps = {
-    swarm: swarmApp,
-    supervisor: (await createSupervisorApp(mcpTools)) as typeof swarmApp,
-    interrupt: (await createInterruptApp()) as typeof swarmApp,
-    analyst: (await createAnalystApp()) as typeof swarmApp,
-    researcher: (await createResearcherApp()) as typeof swarmApp,
-    rag: (await createRagApp(ragStore)) as typeof swarmApp,
-    support: (await createSupportApp()) as typeof swarmApp,
+    swarm: asApp(await createSwarmApp(mcpTools)),
+    supervisor: asApp(await createSupervisorApp(mcpTools)),
+    interrupt: asApp(await createInterruptApp()),
+    analyst: asApp(await createAnalystApp()),
+    researcher: asApp(await createResearcherApp()),
+    rag: asApp(await createRagApp(ragStore)),
+    support: asApp(await createSupportApp()),
   };
 
   type AppName = keyof typeof apps;
