@@ -21,6 +21,7 @@
   <a href="#llm-providers">Providers</a> &bull;
   <a href="#examples">Examples</a> &bull;
   <a href="#api-reference">API</a> &bull;
+  <a href="docs/BUILDING.md">Building Guide</a> &bull;
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
@@ -400,6 +401,8 @@ export async function createMyApp() {
 ```
 
 Register in `src/server/index.ts` and you're live.
+
+For the full agent-layer API — the subagents and handoffs patterns, checkpointer/interrupt rules, structured output, and offline testing — see the **[Building Guide](docs/BUILDING.md)**.
 
 ## Contributing
 

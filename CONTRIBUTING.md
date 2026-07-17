@@ -62,6 +62,8 @@ This is the most impactful type of contribution. Here's the process:
    - Use `makeAgent()` from `src/agents/factory.ts` to create agents
    - Use `makeSupervisor()` or `makeSwarm()` to compose them
    - Export a `createYourApp()` factory function
+   - See **[docs/BUILDING.md](docs/BUILDING.md)** for the full agent-layer API,
+     the checkpointer/interrupt rules, and how to test offline
 
 2. **Add any new tools** in `src/tools/`
 
