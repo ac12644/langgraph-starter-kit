@@ -7,6 +7,7 @@ const DEFAULTS: Record<string, string> = {
   google: "text-embedding-004",
   groq: "text-embedding-3-small", // Groq doesn't have embeddings; fallback to OpenAI
   ollama: "nomic-embed-text",
+  deepseek: "text-embedding-3-small", // DeepSeek doesn't have embeddings; fallback to OpenAI
 };
 
 export async function createEmbeddings(modelOverride?: string): Promise<Embeddings> {

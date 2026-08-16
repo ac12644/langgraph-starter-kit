@@ -3,7 +3,7 @@
   <p align="center">
     The fastest way to build production-ready multi-agent apps with LangGraph.
     <br />
-    <strong>7 patterns. 5 providers. One command.</strong>
+    <strong>7 patterns. 6 providers. One command.</strong>
   </p>
 </p>
 
@@ -36,7 +36,7 @@ npx create-langgraph-app
 ```
 
 **What you get:**
-- Pick your LLM provider (OpenAI, Anthropic, Google, Groq, or local Ollama)
+- Pick your LLM provider (OpenAI, Anthropic, Google, Groq, DeepSeek, or local Ollama)
 - Choose which agent patterns you need
 - Get a ready-to-run project with tests, types, and a Fastify server
 
@@ -82,12 +82,13 @@ graph TD
     F --> L
     T --> L
 
-    subgraph L["5 LLM Providers"]
+    subgraph L["6 LLM Providers"]
         L1[OpenAI]
         L2[Anthropic]
         L3[Google]
         L4[Groq]
         L5["Ollama · local"]
+        L6[DeepSeek]
     end
 ```
 
@@ -98,7 +99,7 @@ graph TD
 | **Patterns** | 7 Agent Patterns | Swarm, Supervisor, HITL, Structured Output, Research, RAG, Customer Support |
 | **Modern** | v1 Agent APIs | Built on LangChain's `createAgent` with the subagents & handoffs patterns — no deprecated packages |
 | **CLI** | Scaffolder | `npx create-langgraph-app` — interactive project generator |
-| **Providers** | 5 LLM Providers | OpenAI, Anthropic, Google, Groq, Ollama — switch with one env var |
+| **Providers** | 6 LLM Providers | OpenAI, Anthropic, Google, Groq, DeepSeek, Ollama — switch with one env var |
 | **Tools** | MCP Integration | Connect external tools via Model Context Protocol |
 | **Server** | HTTP + SSE | Fastify server with invoke, streaming, resume, and thread history |
 | **Debug** | LangGraph Studio | `langgraph.json` included for visual graph debugging |
@@ -163,6 +164,7 @@ Switch providers with one env var. Each has a sensible default model:
 | **Google** | `google` | gemini-2.0-flash | `GOOGLE_API_KEY` |
 | **Groq** | `groq` | llama-3.3-70b-versatile | `GROQ_API_KEY` |
 | **Ollama** | `ollama` | llama3.2 | None (runs locally) |
+| **DeepSeek** | `deepseek` | deepseek-v4-flash | `DEEPSEEK_API_KEY` |
 
 ```bash
 # .env — just two lines to switch

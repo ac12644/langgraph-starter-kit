@@ -1,6 +1,6 @@
 import "dotenv/config";
 
-const VALID_PROVIDERS = ["openai", "anthropic", "google", "groq", "ollama"] as const;
+const VALID_PROVIDERS = ["openai", "anthropic", "google", "groq", "ollama", "deepseek"] as const;
 export type LlmProvider = (typeof VALID_PROVIDERS)[number];
 
 function resolveProvider(): LlmProvider {
@@ -19,6 +19,7 @@ const API_KEY_MAP: Record<LlmProvider, string> = {
   google: "GOOGLE_API_KEY",
   groq: "GROQ_API_KEY",
   ollama: "", // no key needed
+  deepseek: "DEEPSEEK_API_KEY",
 };
 
 /**

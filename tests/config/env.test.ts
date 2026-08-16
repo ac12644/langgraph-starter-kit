@@ -36,6 +36,17 @@ describe("env config", () => {
     vi.unstubAllEnvs();
   });
 
+  it("throws when DeepSeek API key is missing", async () => {
+    vi.stubEnv("LLM_PROVIDER", "deepseek");
+    vi.stubEnv("DEEPSEEK_API_KEY", "");
+
+    await expect(import("../../src/config/env")).rejects.toThrow(
+      /DEEPSEEK_API_KEY.*required/
+    );
+
+    vi.unstubAllEnvs();
+  });
+
   it("does not require API key for ollama", async () => {
     vi.stubEnv("LLM_PROVIDER", "ollama");
 
