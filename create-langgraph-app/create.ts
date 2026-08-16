@@ -71,6 +71,7 @@ const PROVIDERS: Record<string, { envKey: string; defaultModel: string }> = {
   google: { envKey: "GOOGLE_API_KEY", defaultModel: "gemini-2.0-flash" },
   groq: { envKey: "GROQ_API_KEY", defaultModel: "llama-3.3-70b-versatile" },
   ollama: { envKey: "", defaultModel: "llama3.2" },
+  deepseek: { envKey: "DEEPSEEK_API_KEY", defaultModel: "deepseek-v4-flash" },
 };
 
 interface Config {
@@ -130,6 +131,7 @@ function generatePackageJson(config: Config): string {
     google: "@langchain/google-genai",
     groq: "@langchain/groq",
     ollama: "@langchain/ollama",
+    deepseek: "@langchain/deepseek",
   };
   deps[provPkg[config.provider]] = "latest";
 
@@ -183,7 +185,7 @@ function generateTsConfig(): string {
 function generateEnvConfig(config: Config): string {
   return `import "dotenv/config";
 
-const VALID_PROVIDERS = ["openai", "anthropic", "google", "groq", "ollama"] as const;
+const VALID_PROVIDERS = ["openai", "anthropic", "google", "groq", "ollama", "deepseek"] as const;
 export type LlmProvider = (typeof VALID_PROVIDERS)[number];
 
 function resolveProvider(): LlmProvider {
@@ -200,6 +202,7 @@ const API_KEY_MAP: Record<LlmProvider, string> = {
   google: "GOOGLE_API_KEY",
   groq: "GROQ_API_KEY",
   ollama: "",
+  deepseek: "DEEPSEEK_API_KEY",
 };
 
 export const LLM_PROVIDER = resolveProvider();
@@ -220,13 +223,14 @@ export const PORT = Number(process.env.PORT ?? 3000);
 // provider that was selected, so the scaffold depends on a single LLM SDK.
 const PROVIDER_LLM: Record<
   string,
-  { pkg: string; className: string; modelArg: "model" | "modelName"; defaultModel: string }
+  { pkg: string; className: string; modelArg: "model" | "modelName"; defaultModel: string; extraArgs?: string }
 > = {
   openai: { pkg: "@langchain/openai", className: "ChatOpenAI", modelArg: "modelName", defaultModel: "gpt-4o-mini" },
   anthropic: { pkg: "@langchain/anthropic", className: "ChatAnthropic", modelArg: "modelName", defaultModel: "claude-sonnet-4-20250514" },
   google: { pkg: "@langchain/google-genai", className: "ChatGoogleGenerativeAI", modelArg: "model", defaultModel: "gemini-2.0-flash" },
   groq: { pkg: "@langchain/groq", className: "ChatGroq", modelArg: "model", defaultModel: "llama-3.3-70b-versatile" },
   ollama: { pkg: "@langchain/ollama", className: "ChatOllama", modelArg: "model", defaultModel: "llama3.2" },
+  deepseek: { pkg: "@langchain/deepseek", className: "ChatDeepSeek", modelArg: "model", defaultModel: "deepseek-v4-flash", extraArgs: 'modelKwargs: { thinking: { type: "disabled" } }' },
 };
 
 function generateLlmConfig(config: Config): string {
@@ -246,7 +250,7 @@ async function createLlm(opts: LlmOptions = {}): Promise<BaseChatModel> {
   const temperature = opts.temperature ?? LLM_TEMPERATURE;
 
   const { ${p.className} } = await import("${p.pkg}");
-  return new ${p.className}({ ${p.modelArg}: model, temperature });
+  return new ${p.className}({ ${p.modelArg}: model, temperature${p.extraArgs ? `, ${p.extraArgs}` : ""} });
 }
 
 let _default: Promise<BaseChatModel> | undefined;
@@ -1069,6 +1073,7 @@ async function main() {
       { value: "anthropic", label: "Anthropic (Claude Sonnet)" },
       { value: "google", label: "Google (Gemini 2.0 Flash)" },
       { value: "groq", label: "Groq (Llama 3.3 70B)" },
+      { value: "deepseek", label: "DeepSeek (deepseek-v4-flash)" },
       { value: "ollama", label: "Ollama (local, no API key)" },
     ]);
 
