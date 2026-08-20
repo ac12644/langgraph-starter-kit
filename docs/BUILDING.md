@@ -15,6 +15,7 @@ that aren't obvious until they bite you.
 - [Checkpointers and interrupts — the rule that matters](#checkpointers-and-interrupts--the-rule-that-matters)
 - [Structured output](#structured-output)
 - [Persistence and threads](#persistence-and-threads)
+- [What the HTTP server does for you](#what-the-http-server-does-for-you)
 - [Testing without an API key](#testing-without-an-api-key)
 - [Wiring a new app into the kit](#wiring-a-new-app-into-the-kit)
 - [MCP tools](#mcp-tools)
@@ -68,6 +69,7 @@ const agent = makeAgent({
   system: "You are ...",       // optional system prompt
   responseFormat: ...,         // optional, see Structured output
   checkpointer: ...,           // optional — ONLY for the outermost agent
+  store: ...,                  // optional cross-thread store, outermost only
 });
 ```
 
@@ -254,6 +256,25 @@ wiring problem.
 
 `GET /:app/threads/:id` and `GET /:app/threads/:id/history` expose thread
 state over HTTP.
+
+`makeSupervisor` and `makeSwarm` also accept an optional `store` (cross-thread
+memory, `InMemoryStore` by default). Like the checkpointer it belongs on the
+outermost graph only. If you pass your own `checkpointer`, pass your own
+`store` too — the kit only auto-creates them together.
+
+## What the HTTP server does for you
+
+Beyond the routes listed in the README, `src/server/index.ts` handles:
+
+- **Validation** — `messages` is checked before it reaches LangGraph
+  (`src/server/validation.ts`). A malformed body returns **400** instead of
+  running the agent on coerced garbage.
+- **404 for unknown apps** — requesting an app that isn't registered returns
+  404, not 500.
+- **Graceful shutdown** — `SIGTERM`/`SIGINT` drain in-flight requests via
+  `server.close()`, which also fires the `onClose` hook that closes the MCP
+  client. Container runtimes (Docker, Railway, Render) send `SIGTERM` on stop,
+  so without this the process would die mid-request.
 
 ## Testing without an API key
 

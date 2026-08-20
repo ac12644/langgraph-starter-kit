@@ -1,6 +1,6 @@
 import { createAgent, type ResponseFormat, type TypedToolStrategy } from "langchain";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
+import type { BaseCheckpointSaver, BaseStore } from "@langchain/langgraph-checkpoint";
 
 type CreateAgentParams = Parameters<typeof createAgent>[0];
 
@@ -16,6 +16,8 @@ export interface MakeAgentParams {
    * `interrupt()` calls bubble up to the top-level graph.
    */
   checkpointer?: BaseCheckpointSaver;
+  /** Cross-thread memory store. Like `checkpointer`, set it on the outermost agent only. */
+  store?: BaseStore;
 }
 
 /**
@@ -33,6 +35,7 @@ export function makeAgent({
   system,
   responseFormat,
   checkpointer,
+  store,
 }: MakeAgentParams) {
   return createAgent({
     name,
@@ -41,6 +44,7 @@ export function makeAgent({
     ...(system ? { systemPrompt: system } : {}),
     ...(responseFormat ? { responseFormat } : {}),
     ...(checkpointer ? { checkpointer } : {}),
+    ...(store ? { store } : {}),
   });
 }
 

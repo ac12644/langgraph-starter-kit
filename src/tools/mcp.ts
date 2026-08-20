@@ -46,7 +46,3 @@ export async function loadMcpTools(configPath?: string): Promise<McpLoadResult> 
   _cached = { tools, client };
   return _cached;
 }
-
-export function getMcpTools(): DynamicStructuredTool[] {
-  return _cached?.tools ?? [];
-}

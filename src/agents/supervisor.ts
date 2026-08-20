@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tool } from "@langchain/core/tools";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
+import type { BaseCheckpointSaver, BaseStore } from "@langchain/langgraph-checkpoint";
 import { makeAgent, type AgentGraph } from "./factory";
 
 /**
@@ -58,6 +58,7 @@ export interface MakeSupervisorParams {
   supervisorName?: string;
   prompt?: string;
   checkpointer?: BaseCheckpointSaver;
+  store?: BaseStore;
 }
 
 export async function makeSupervisor({
@@ -66,6 +67,7 @@ export async function makeSupervisor({
   supervisorName = "supervisor",
   prompt,
   checkpointer,
+  store,
 }: MakeSupervisorParams) {
   const defaultPrompt =
     "You coordinate a team of specialists. Delegate work to them via " +
@@ -74,9 +76,15 @@ export async function makeSupervisor({
 
   // Lazy import: config/env validates provider API keys at import time,
   // which callers supplying their own checkpointer (e.g. tests) shouldn't
-  // have to satisfy.
-  const resolvedCheckpointer =
-    checkpointer ?? (await (await import("../config/checkpointer")).getCheckpointer());
+  // have to satisfy. Callers that bring their own checkpointer are expected
+  // to bring their own store too, if they want one.
+  let resolvedCheckpointer = checkpointer;
+  let resolvedStore = store;
+  if (!resolvedCheckpointer) {
+    const config = await import("../config/checkpointer");
+    resolvedCheckpointer = await config.getCheckpointer();
+    resolvedStore ??= config.getStore();
+  }
 
   return makeAgent({
     name: supervisorName,
@@ -84,5 +92,6 @@ export async function makeSupervisor({
     tools: subagents.map(subagentTool),
     system: prompt ?? defaultPrompt,
     checkpointer: resolvedCheckpointer,
+    store: resolvedStore,
   });
 }

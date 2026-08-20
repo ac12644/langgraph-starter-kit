@@ -10,6 +10,7 @@ import { createResearcherApp } from "../apps/researcher";
 import { createRagApp, initRagStore } from "../apps/rag";
 import { createSupportApp } from "../apps/support";
 import { loadMcpTools } from "../tools/mcp";
+import { httpError, validateMessages } from "./validation";
 
 // -- Types --
 
@@ -104,7 +105,7 @@ export async function startServer(): Promise<void> {
 
   function getApp(name: string) {
     if (!(name in apps)) {
-      throw new Error(`Unknown app: "${name}". Available: ${Object.keys(apps).join(", ")}`);
+      throw httpError(404, `Unknown app: "${name}". Available: ${Object.keys(apps).join(", ")}`);
     }
     return apps[name as AppName];
   }
@@ -113,7 +114,8 @@ export async function startServer(): Promise<void> {
 
   server.post<{ Params: { app: string } }>("/:app/invoke", async (req, reply) => {
     const app = getApp(req.params.app);
-    const { messages = [], thread_id = "default" } = parseBody<InvokeBody>(req.body);
+    const { messages: rawMessages, thread_id = "default" } = parseBody<InvokeBody>(req.body);
+    const messages = validateMessages(rawMessages);
 
     const result = await app.invoke(
       { messages },
@@ -129,7 +131,8 @@ export async function startServer(): Promise<void> {
 
   server.post<{ Params: { app: string } }>("/:app/stream", async (req, reply) => {
     const app = getApp(req.params.app);
-    const { messages = [], thread_id = "default" } = parseBody<InvokeBody>(req.body);
+    const { messages: rawMessages, thread_id = "default" } = parseBody<InvokeBody>(req.body);
+    const messages = validateMessages(rawMessages);
 
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -239,6 +242,30 @@ export async function startServer(): Promise<void> {
       // MCP client cleanup is best-effort
     }
   });
+
+  // -- Graceful shutdown --
+
+  // Container runtimes (Docker, Railway, Render) send SIGTERM on stop. Without
+  // this, Node exits immediately: in-flight requests are cut off and Fastify's
+  // onClose hook above never runs, so the MCP client is never closed.
+  let shuttingDown = false;
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.on(signal, () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      console.log(`\n${signal} received — draining connections...`);
+      server
+        .close()
+        .then(() => {
+          console.log("Shutdown complete.");
+          process.exit(0);
+        })
+        .catch((err: unknown) => {
+          console.error("Error during shutdown:", err);
+          process.exit(1);
+        });
+    });
+  }
 
   // -- Listen --
 

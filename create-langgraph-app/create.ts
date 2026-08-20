@@ -142,6 +142,7 @@ function generatePackageJson(config: Config): string {
       dev: "tsx src/index.ts",
       "dev:http": "tsx src/server.ts",
       test: "vitest run",
+      "test:watch": "vitest",
       typecheck: "tsc --noEmit",
     },
     dependencies: Object.fromEntries(
@@ -172,7 +173,7 @@ function generateTsConfig(): string {
         types: ["node"],
         outDir: "dist",
       },
-      include: ["src"],
+      include: ["src", "tests"],
     },
     null,
     2
@@ -390,6 +391,261 @@ export function makeSupervisor({
     checkpointer: checkpointer ?? new MemorySaver(),
   });
 }
+`;
+}
+
+// Maps a selected pattern to the app it generates, so the server and demos
+// only reference files that actually exist.
+const PATTERN_APPS: Record<string, { route: string; fn: string; path: string }> = {
+  supervisor: { route: "supervisor", fn: "createSupervisorApp", path: "./apps/supervisor" },
+  swarm: { route: "swarm", fn: "createSwarmApp", path: "./apps/swarm" },
+  hitl: { route: "interrupt", fn: "createInterruptApp", path: "./apps/interrupt" },
+  structured: { route: "analyst", fn: "createAnalystApp", path: "./apps/analyst" },
+  rag: { route: "rag", fn: "createRagApp", path: "./apps/rag" },
+};
+
+function selectedApps(config: Config) {
+  return config.patterns.map((p) => PATTERN_APPS[p]).filter(Boolean);
+}
+
+function generateServer(config: Config): string {
+  const apps = selectedApps(config);
+  const imports = apps.map((a) => `import { ${a.fn} } from "${a.path}";`).join("\n");
+  const entries = apps.map((a) => `    "${a.route}": asApp(await ${a.fn}()),`).join("\n");
+
+  return `import "./config/env";
+import { fastify, type FastifyError, type FastifyReply, type FastifyRequest } from "fastify";
+import { Command } from "@langchain/langgraph";
+import { AIMessageChunk, type BaseMessage } from "@langchain/core/messages";
+import { PORT } from "./config/env";
+${imports}
+
+// The apps are a mix of agents and graphs whose generic types don't unify;
+// this is the structural slice the routes actually need.
+interface AppGraph {
+  invoke(input: unknown, config?: unknown): Promise<{ messages: BaseMessage[] } & Record<string, unknown>>;
+  stream(input: unknown, config?: unknown): Promise<AsyncIterable<[unknown, { langgraph_node?: string } | undefined]>>;
+  getState(config: unknown): Promise<{ values?: unknown; next?: string[]; tasks?: unknown[] } | undefined>;
+}
+const asApp = (g: unknown) => g as AppGraph;
+
+function httpError(status: number, message: string) {
+  return Object.assign(new Error(message), { statusCode: status });
+}
+
+/** Reject malformed bodies before they reach the agent. */
+function validateMessages(raw: unknown): { role: string; content: string }[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) throw httpError(400, '"messages" must be an array');
+  return raw.map((m, i) => {
+    const { role, content } = (m ?? {}) as Record<string, unknown>;
+    if (typeof role !== "string" || typeof content !== "string") {
+      throw httpError(400, \`messages[\${i}] needs string "role" and "content"\`);
+    }
+    return { role, content };
+  });
+}
+
+const server = fastify({ logger: false });
+
+server.setErrorHandler(async (error: FastifyError, _req: FastifyRequest, reply: FastifyReply) => {
+  const status = error.statusCode ?? 500;
+  return reply.status(status).send({ error: error.message });
+});
+
+async function start() {
+  const apps: Record<string, AppGraph> = {
+${entries}
+  };
+
+  const getApp = (name: string) => {
+    const app = apps[name];
+    if (!app) throw httpError(404, \`Unknown app: "\${name}". Available: \${Object.keys(apps).join(", ")}\`);
+    return app;
+  };
+
+  server.post<{ Params: { app: string } }>("/:app/invoke", async (req, reply) => {
+    const app = getApp(req.params.app);
+    const body = (req.body ?? {}) as { messages?: unknown; thread_id?: string };
+    const messages = validateMessages(body.messages);
+    const thread_id = body.thread_id ?? "default";
+
+    const result = await app.invoke({ messages }, { configurable: { thread_id } });
+    const last = result.messages.at(-1);
+    return reply.send({
+      messages: result.messages,
+      structuredResponse: (result as Record<string, unknown>).structuredResponse ?? null,
+      lastMessage: typeof last?.content === "string" ? last.content : JSON.stringify(last?.content),
+    });
+  });
+
+  server.post<{ Params: { app: string } }>("/:app/stream", async (req, reply) => {
+    const app = getApp(req.params.app);
+    const body = (req.body ?? {}) as { messages?: unknown; thread_id?: string };
+    const messages = validateMessages(body.messages);
+    const thread_id = body.thread_id ?? "default";
+
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    const send = (e: unknown) => reply.raw.write(\`data: \${JSON.stringify(e)}\\n\\n\`);
+
+    try {
+      const stream = await app.stream({ messages }, { configurable: { thread_id }, streamMode: "messages" });
+      for await (const [chunk, metadata] of stream) {
+        if (chunk instanceof AIMessageChunk) {
+          send({ type: "token", content: chunk.content, node: metadata?.langgraph_node ?? "unknown" });
+        }
+      }
+      send({ type: "done" });
+    } catch (err) {
+      send({ type: "error", content: err instanceof Error ? err.message : "Stream failed" });
+    } finally {
+      reply.raw.end();
+    }
+  });
+
+  server.post<{ Params: { app: string } }>("/:app/resume", async (req, reply) => {
+    const app = getApp(req.params.app);
+    const body = (req.body ?? {}) as { thread_id?: string; decision?: string };
+    if (body.decision === undefined) {
+      return reply.status(400).send({ error: '"decision" field is required' });
+    }
+    const result = await app.invoke(new Command({ resume: body.decision }), {
+      configurable: { thread_id: body.thread_id ?? "default" },
+    });
+    const last = result.messages.at(-1);
+    return reply.send({
+      messages: result.messages,
+      lastMessage: typeof last?.content === "string" ? last.content : JSON.stringify(last?.content),
+    });
+  });
+
+  server.get<{ Params: { app: string; threadId: string } }>("/:app/threads/:threadId", async (req, reply) => {
+    const app = getApp(req.params.app);
+    const state = await app.getState({ configurable: { thread_id: req.params.threadId } });
+    if (!state?.values) return reply.status(404).send({ error: "Thread not found" });
+    return reply.send({ values: state.values, next: state.next ?? [], tasks: state.tasks ?? [] });
+  });
+
+  server.get("/health", async () => ({ status: "ok", apps: Object.keys(apps) }));
+
+  // Container runtimes send SIGTERM on stop — drain instead of dying mid-request.
+  let shuttingDown = false;
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.on(signal, () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      server.close().then(() => process.exit(0)).catch(() => process.exit(1));
+    });
+  }
+
+  await server.listen({ port: PORT, host: "0.0.0.0" });
+  console.log(\`Server running at http://localhost:\${PORT}\`);
+  console.log(\`Apps: \${Object.keys(apps).join(", ")}\`);
+}
+
+start().catch((err) => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});
+`;
+}
+
+function generateScriptedModel(): string {
+  return `import { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import { AIMessage, type BaseMessage } from "@langchain/core/messages";
+import type { ChatResult } from "@langchain/core/outputs";
+
+/**
+ * A model that replays a queued list of responses, so tests can drive real
+ * graphs offline — no API key, no network, fully deterministic.
+ */
+export class ScriptedToolCallingModel extends BaseChatModel {
+  private queue: AIMessage[];
+
+  constructor(queue: AIMessage[]) {
+    super({});
+    this.queue = [...queue];
+  }
+
+  _llmType(): string {
+    return "scripted-tool-calling";
+  }
+
+  override bindTools(): this {
+    return this;
+  }
+
+  async _generate(_messages: BaseMessage[]): Promise<ChatResult> {
+    const message = this.queue.shift();
+    if (!message) throw new Error("Scripted model ran out of responses");
+    return { generations: [{ message, text: "" }] };
+  }
+}
+`;
+}
+
+function generateAgentTest(config: Config): string {
+  const hasSupervisor = config.patterns.includes("supervisor");
+
+  const supervisorTest = hasSupervisor
+    ? `
+  it("delegates to a subagent and returns its answer", async () => {
+    const llm = new ScriptedToolCallingModel([
+      // supervisor delegates
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "c1", name: "worker", args: { task: "do the thing" } }],
+      }),
+      // subagent answers
+      new AIMessage("worker done"),
+      // supervisor wraps up
+      new AIMessage("All finished."),
+    ]);
+
+    const worker = makeAgent({ name: "worker", llm, tools: [] });
+    const app = await makeSupervisor({
+      subagents: [{ name: "worker", description: "Does the thing.", agent: worker }],
+      llm,
+      checkpointer: new MemorySaver(),
+    });
+
+    const result = await app.invoke(
+      { messages: [{ role: "user", content: "do the thing" }] },
+      { configurable: { thread_id: "t1" } }
+    );
+
+    expect(result.messages.at(-1)?.content).toBe("All finished.");
+    // the supervisor sees the subagent's final answer, not its internals
+    const toolMessages = result.messages.filter((m) => m.getType() === "tool");
+    expect(toolMessages).toHaveLength(1);
+    expect(toolMessages[0].content).toBe("worker done");
+  });
+`
+    : "";
+
+  const supervisorImports = hasSupervisor
+    ? `import { makeSupervisor } from "../src/agents/supervisor";\nimport { MemorySaver } from "@langchain/langgraph";\n`
+    : "";
+
+  return `import { describe, expect, it } from "vitest";
+import { AIMessage } from "@langchain/core/messages";
+import { makeAgent } from "../src/agents/factory";
+${supervisorImports}import { ScriptedToolCallingModel } from "./helpers/scripted-model";
+
+describe("agents", () => {
+  it("runs a single agent to a final answer", async () => {
+    const llm = new ScriptedToolCallingModel([new AIMessage("Hello there.")]);
+    const agent = makeAgent({ name: "assistant", llm, tools: [], system: "Be brief." });
+
+    const result = await agent.invoke({ messages: [{ role: "user", content: "hi" }] });
+
+    expect(result.messages.at(-1)?.content).toBe("Hello there.");
+  });
+${supervisorTest}});
 `;
 }
 
@@ -773,6 +1029,13 @@ export async function createRagApp() {
   );
   console.log("Result:", rag.messages.at(-1)?.content);`);
   }
+
+  // HTTP server — routes only the apps that were generated
+  files.push({ path: "src/server.ts", content: generateServer(config) });
+
+  // Tests — offline, no API key needed
+  files.push({ path: "tests/helpers/scripted-model.ts", content: generateScriptedModel() });
+  files.push({ path: "tests/agents.test.ts", content: generateAgentTest(config) });
 
   // Generate index.ts
   files.push({

@@ -105,7 +105,7 @@ graph TD
 | **Observe** | LangSmith Tracing | Full observability with one env var |
 | **Persist** | Memory + Postgres | In-memory for dev, PostgreSQL-ready for production |
 | **Deploy** | Docker + CI | Docker Compose with Postgres, GitHub Actions CI |
-| **Test** | 39 Tests | Tools, config, agents, offline multi-agent flows — all tested with vitest |
+| **Test** | 45 Tests | Tools, config, agents, request validation, offline multi-agent flows — all with vitest |
 
 ## Quick Start
 

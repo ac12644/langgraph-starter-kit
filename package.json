@@ -1,6 +1,6 @@
 {
   "name": "langgraph-starter-kit",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Production-ready multi-agent starter kit with LangGraph — supports swarm, supervisor, HITL, structured output, and 5 LLM providers",
   "private": true,
   "type": "module",

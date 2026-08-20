@@ -26,9 +26,15 @@ export async function initRagStore(
   return _vectorStore;
 }
 
-export async function createRagApp(vectorStore: InMemoryVectorStore) {
+/**
+ * `vectorStore` is optional so this factory can be registered directly in
+ * `langgraph.json` — LangGraph Studio calls graph factories with no vector
+ * store, and initRagStore() is memoized, so passing one is just an
+ * optimization for callers that already built it.
+ */
+export async function createRagApp(vectorStore?: InMemoryVectorStore) {
   const llm = await getLlm();
-  const retrievalTool = createRetrievalTool(vectorStore);
+  const retrievalTool = createRetrievalTool(vectorStore ?? (await initRagStore()));
 
   // A single agent with a retrieval tool — no supervisor layer needed.
   return makeAgent({
