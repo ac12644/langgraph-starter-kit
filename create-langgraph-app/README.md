@@ -11,7 +11,7 @@ npx create-langgraph-app
 ## What it does
 
 1. Asks for your project name
-2. Lets you pick an LLM provider (OpenAI, Anthropic, Google, Groq, Ollama)
+2. Lets you pick an LLM provider (OpenAI, Anthropic, Google, Groq, DeepSeek, Ollama)
 3. Lets you select which agent patterns to include:
    - **Supervisor** — central coordinator + worker agents
    - **Swarm** — peer-to-peer agent handoffs

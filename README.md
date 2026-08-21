@@ -130,7 +130,8 @@ Interactive CLI — pick your provider, choose your patterns, get a project:
     2. Anthropic (Claude Sonnet)
     3. Google (Gemini 2.0 Flash)
     4. Groq (Llama 3.3 70B)
-    5. Ollama (local, no API key)
+    5. DeepSeek (deepseek-v4-flash)
+    6. Ollama (local, no API key)
 
   Which patterns?
     1. Supervisor

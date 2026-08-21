@@ -239,7 +239,7 @@ const result = await app.invoke({ messages }, config);
 ```
 
 `toolStrategy` makes the model emit the schema as a tool call — reliable
-across all five providers. If your model supports native structured output,
+across all six providers. If your model supports native structured output,
 `providerStrategy` uses the provider's own API instead. Small local models
 (3B) fumble schema tool calls regularly; this is a model limitation, not a
 wiring problem.
