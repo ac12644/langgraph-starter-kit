@@ -3,6 +3,7 @@ import {
   LLM_PROVIDER,
   LLM_MODEL,
   LLM_TEMPERATURE,
+  DEEPSEEK_THINKING,
   assertProviderKey,
   type LlmProvider,
 } from "./env";
@@ -54,7 +55,7 @@ async function createLlm(opts: LlmOptions = {}): Promise<BaseChatModel> {
       return new ChatDeepSeek({
         model,
         temperature,
-        modelKwargs: { thinking: { type: "disabled" } },
+        modelKwargs: { thinking: { type: DEEPSEEK_THINKING } },
       });
     }
     case "openai":

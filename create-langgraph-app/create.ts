@@ -99,6 +99,9 @@ function generateEnv(config: Config): string {
     `# LLM_MODEL=${prov.defaultModel}`,
     `LLM_TEMPERATURE=0`,
     ``,
+    ...(config.provider === "deepseek"
+      ? [`# DeepSeek reasoning mode (optional — "disabled" | "enabled")`, `# DEEPSEEK_THINKING=disabled`, ``]
+      : []),
     `PORT=3000`,
     ``,
     `# LangSmith tracing (optional)`,
@@ -215,6 +218,7 @@ if (requiredKey && !process.env[requiredKey]) {
 
 export const LLM_MODEL = process.env.LLM_MODEL || undefined;
 export const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? 0);
+export const DEEPSEEK_THINKING = process.env.DEEPSEEK_THINKING ?? "disabled";
 export const PORT = Number(process.env.PORT ?? 3000);
 `;
 }
@@ -230,13 +234,17 @@ const PROVIDER_LLM: Record<
   google: { pkg: "@langchain/google-genai", className: "ChatGoogleGenerativeAI", modelArg: "model", defaultModel: "gemini-2.0-flash" },
   groq: { pkg: "@langchain/groq", className: "ChatGroq", modelArg: "model", defaultModel: "llama-3.3-70b-versatile" },
   ollama: { pkg: "@langchain/ollama", className: "ChatOllama", modelArg: "model", defaultModel: "llama3.2" },
-  deepseek: { pkg: "@langchain/deepseek", className: "ChatDeepSeek", modelArg: "model", defaultModel: "deepseek-v4-flash", extraArgs: 'modelKwargs: { thinking: { type: "disabled" } }' },
+  deepseek: { pkg: "@langchain/deepseek", className: "ChatDeepSeek", modelArg: "model", defaultModel: "deepseek-v4-flash", extraArgs: 'modelKwargs: { thinking: { type: DEEPSEEK_THINKING } }' },
 };
 
 function generateLlmConfig(config: Config): string {
   const p = PROVIDER_LLM[config.provider] ?? PROVIDER_LLM.openai;
+  const envImports =
+    config.provider === "deepseek"
+      ? "LLM_MODEL, LLM_TEMPERATURE, DEEPSEEK_THINKING"
+      : "LLM_MODEL, LLM_TEMPERATURE";
   return `import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { LLM_MODEL, LLM_TEMPERATURE } from "./env";
+import { ${envImports} } from "./env";
 
 const DEFAULT_MODEL = "${p.defaultModel}";
 
