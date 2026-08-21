@@ -7,7 +7,7 @@ import { createSupervisorApp } from "./apps/supervisor";
 import { createInterruptApp } from "./apps/interrupt";
 import { createAnalystApp } from "./apps/analyst";
 import { createResearcherApp } from "./apps/researcher";
-import { createRagApp, initRagStore } from "./apps/rag";
+import { createRagApp } from "./apps/rag";
 import { createSupportApp } from "./apps/support";
 
 function lastContent(messages: BaseMessage[]): string {
@@ -40,8 +40,6 @@ async function run(): Promise<void> {
   const analystApp = await createAnalystApp();
   const researcherApp = await createResearcherApp();
   const supportApp = await createSupportApp();
-  const ragStore = await initRagStore();
-  const ragApp = await createRagApp(ragStore);
 
   // -- Supervisor --
   await runDemo("Supervisor Demo", async () => {
@@ -77,7 +75,11 @@ async function run(): Promise<void> {
   });
 
   // -- RAG --
+  // Built inside runDemo: RAG needs an embeddings provider, and providers
+  // without one (anthropic, groq, deepseek) fall back to OpenAI. If that key
+  // is missing this must fail as a single demo, not take down the whole run.
   await runDemo("RAG Demo", async () => {
+    const ragApp = await createRagApp();
     const result = await ragApp.invoke(
       {
         messages: [{

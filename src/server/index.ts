@@ -7,7 +7,7 @@ import { createSupervisorApp } from "../apps/supervisor";
 import { createInterruptApp } from "../apps/interrupt";
 import { createAnalystApp } from "../apps/analyst";
 import { createResearcherApp } from "../apps/researcher";
-import { createRagApp, initRagStore } from "../apps/rag";
+import { createRagApp } from "../apps/rag";
 import { createSupportApp } from "../apps/support";
 import { loadMcpTools } from "../tools/mcp";
 import { httpError, validateMessages } from "./validation";
@@ -87,8 +87,17 @@ export async function startServer(): Promise<void> {
   // Load MCP tools first — they get injected into agents
   const { tools: mcpTools, client: mcpClient } = await loadMcpTools();
 
-  // Initialize RAG vector store (async — must complete before building apps)
-  const ragStore = await initRagStore();
+  // RAG needs an embeddings provider. Providers without one (anthropic, groq,
+  // deepseek) fall back to OpenAI, so a missing OPENAI_API_KEY must not stop
+  // the whole server from starting — register the other apps and skip /rag.
+  let ragApp: AppGraph | undefined;
+  try {
+    ragApp = asApp(await createRagApp());
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`RAG app unavailable (embeddings failed): ${msg}`);
+    console.warn("  /rag routes are disabled. Set OPENAI_API_KEY, or use a provider with its own embeddings.");
+  }
 
   // Build apps with MCP tools available
   const apps = {
@@ -97,9 +106,9 @@ export async function startServer(): Promise<void> {
     interrupt: asApp(await createInterruptApp()),
     analyst: asApp(await createAnalystApp()),
     researcher: asApp(await createResearcherApp()),
-    rag: asApp(await createRagApp(ragStore)),
     support: asApp(await createSupportApp()),
-  };
+    ...(ragApp ? { rag: ragApp } : {}),
+  } as Record<string, AppGraph>;
 
   type AppName = keyof typeof apps;
 

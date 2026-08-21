@@ -276,6 +276,18 @@ Beyond the routes listed in the README, `src/server/index.ts` handles:
   client. Container runtimes (Docker, Railway, Render) send `SIGTERM` on stop,
   so without this the process would die mid-request.
 
+## RAG and embeddings
+
+RAG needs an embeddings model, which is a separate capability from chat.
+`src/config/embeddings.ts` maps each provider to one; **Anthropic and Groq have
+no embeddings API**, so they fall back to OpenAI's — meaning RAG with those
+providers also requires `OPENAI_API_KEY`, even though `assertProviderKey()`
+only validates the chat provider's key.
+
+This failure is isolated: the CLI demo builds the RAG app inside its `runDemo`
+wrapper, and the server registers `/rag` only if embeddings initialize. A
+missing embeddings key costs you the RAG app, not the whole process.
+
 ## Testing without an API key
 
 `tests/helpers/scripted-model.ts` provides `ScriptedToolCallingModel` — a fake
