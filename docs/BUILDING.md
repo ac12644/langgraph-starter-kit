@@ -278,13 +278,28 @@ Beyond the routes listed in the README, `src/server/index.ts` handles:
 
 ## RAG and embeddings
 
-RAG needs an embeddings model, which is a separate capability from chat.
-`src/config/embeddings.ts` maps each provider to one; **Anthropic, Groq and
-DeepSeek have no embeddings API**, so they fall back to OpenAI's — meaning RAG with those
-providers also requires `OPENAI_API_KEY`, even though `assertProviderKey()`
-only validates the chat provider's key.
+Chat and embeddings are decoupled. `EMBEDDINGS_PROVIDER` (optional) chooses the
+embeddings backend — `openai`, `google`, or `ollama` — independently of
+`LLM_PROVIDER`. `EMBEDDINGS_MODEL` overrides the model name.
 
-This failure is isolated: the CLI demo builds the RAG app inside its `runDemo`
+When `EMBEDDINGS_PROVIDER` is unset it defaults from `LLM_PROVIDER`:
+
+| LLM_PROVIDER | default EMBEDDINGS_PROVIDER |
+|---|---|
+| openai | openai |
+| google | google |
+| ollama | ollama |
+| anthropic / groq / deepseek | openai |
+
+**Anthropic, Groq and DeepSeek have no embeddings API**, so their implicit
+default is OpenAI. That fallback is logged once, with a hint to set
+`EMBEDDINGS_PROVIDER`. An explicit `EMBEDDINGS_PROVIDER=deepseek` is invalid
+and errors at startup.
+
+The embeddings key is validated on demand inside `createEmbeddings()`, not at
+`env.ts` import time — non-RAG users never need an embeddings key.
+
+Failures stay isolated: the CLI demo builds the RAG app inside its `runDemo`
 wrapper, and the server registers `/rag` only if embeddings initialize. A
 missing embeddings key costs you the RAG app, not the whole process.
 

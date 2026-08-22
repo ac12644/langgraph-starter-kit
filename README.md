@@ -237,6 +237,9 @@ curl -X POST http://localhost:3000/researcher/invoke \
 
 In-memory vector store with semantic search. Best for: **answering questions about your own documents/knowledge base**.
 
+Embeddings default from `LLM_PROVIDER`; set `EMBEDDINGS_PROVIDER=ollama` to run
+RAG without an OpenAI key (e.g. `LLM_PROVIDER=deepseek` + `EMBEDDINGS_PROVIDER=ollama`).
+
 ```bash
 curl -X POST http://localhost:3000/rag/invoke \
   -H "Content-Type: application/json" \

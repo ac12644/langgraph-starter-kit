@@ -36,10 +36,51 @@ export function assertProviderKey(provider: LlmProvider): void {
   }
 }
 
+const VALID_EMBEDDINGS_PROVIDERS = ["openai", "google", "ollama"] as const;
+export type EmbeddingsProvider = (typeof VALID_EMBEDDINGS_PROVIDERS)[number];
+
+
+const DEFAULT_EMBEDDINGS_PROVIDER: Record<LlmProvider, EmbeddingsProvider> = {
+  openai: "openai",
+  anthropic: "openai", // Anthropic has no native embeddings API; fall back to OpenAI
+  google: "google",
+  groq: "openai",
+  ollama: "ollama",
+  deepseek: "openai",
+};
+
+/** Chat providers with no native embeddings API — implicit default falls back to OpenAI. */
+export const LLM_PROVIDERS_WITHOUT_EMBEDDINGS: ReadonlySet<LlmProvider> = new Set([
+  "anthropic",
+  "groq",
+  "deepseek",
+]);
+
+function resolveEmbeddingsProvider(llmProvider: LlmProvider): EmbeddingsProvider {
+  // step 1: Check environment variables(Prioritize explicitly configured by the user)
+  const explicit = process.env.EMBEDDINGS_PROVIDER?.trim().toLowerCase();
+  // step 2: If no, default mapping
+  if (!explicit) {
+    return DEFAULT_EMBEDDINGS_PROVIDER[llmProvider];
+  }
+  // step 3: After setting the environment variables, verify the legality first.
+  if (!VALID_EMBEDDINGS_PROVIDERS.includes(explicit as EmbeddingsProvider)) {
+    throw new Error(
+      `Invalid EMBEDDINGS_PROVIDER "${explicit}". Must be one of: ${VALID_EMBEDDINGS_PROVIDERS.join(", ")}`
+    );
+  }
+  // step 4: return value
+  return explicit as EmbeddingsProvider;
+}
+
 export const LLM_PROVIDER = resolveProvider();
 
 // Fail fast: validate the default provider's key at startup.
 assertProviderKey(LLM_PROVIDER);
+
+export const EMBEDDINGS_PROVIDER = resolveEmbeddingsProvider(LLM_PROVIDER);
+export const EMBEDDINGS_MODEL = process.env.EMBEDDINGS_MODEL || undefined;
+export const EMBEDDINGS_PROVIDER_EXPLICIT = Boolean(process.env.EMBEDDINGS_PROVIDER?.trim());
 
 export const LLM_MODEL = process.env.LLM_MODEL || undefined;
 export const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? 0);
