@@ -1,10 +1,10 @@
 import type { Embeddings } from "@langchain/core/embeddings";
 import {
+  DEFAULT_EMBEDDINGS_PROVIDER,
   EMBEDDINGS_MODEL,
-  EMBEDDINGS_PROVIDER,
-  EMBEDDINGS_PROVIDER_EXPLICIT,
+  EMBEDDINGS_PROVIDER_RAW,
   LLM_PROVIDER,
-  LLM_PROVIDERS_WITHOUT_EMBEDDINGS,
+  VALID_EMBEDDINGS_PROVIDERS,
   type EmbeddingsProvider,
 } from "./env";
 
@@ -21,6 +21,22 @@ const EMBEDDINGS_API_KEYS: Record<EmbeddingsProvider, string> = {
   ollama: "",
 };
 
+function resolveEmbeddingsProviderAtCall(): { provider: EmbeddingsProvider; explicit: boolean } {
+  const explicit = Boolean(EMBEDDINGS_PROVIDER_RAW);
+  if (!EMBEDDINGS_PROVIDER_RAW) {
+    return { provider: DEFAULT_EMBEDDINGS_PROVIDER[LLM_PROVIDER], explicit: false };
+  }
+
+  const normalized = EMBEDDINGS_PROVIDER_RAW.toLowerCase();
+  if (!VALID_EMBEDDINGS_PROVIDERS.includes(normalized as EmbeddingsProvider)) {
+    throw new Error(
+      `Invalid EMBEDDINGS_PROVIDER "${EMBEDDINGS_PROVIDER_RAW}". Must be one of: ${VALID_EMBEDDINGS_PROVIDERS.join(", ")}`
+    );
+  }
+
+  return { provider: normalized as EmbeddingsProvider, explicit };
+}
+
 function assertEmbeddingsProviderKey(provider: EmbeddingsProvider): void {
   const requiredKey = EMBEDDINGS_API_KEYS[provider];
   if (requiredKey && !process.env[requiredKey]) {
@@ -32,29 +48,32 @@ function assertEmbeddingsProviderKey(provider: EmbeddingsProvider): void {
 
 let implicitFallbackLogged = false;
 
-function maybeLogImplicitFallback(model: string): void {
-  // Log once when an implicit OpenAI fallback engages; skip if already logged
-  // or if the user set EMBEDDINGS_PROVIDER explicitly.
+function maybeLogImplicitFallback(
+  provider: EmbeddingsProvider,
+  explicit: boolean,
+  model: string
+): void {
   if (
     implicitFallbackLogged ||
-    EMBEDDINGS_PROVIDER_EXPLICIT ||
-    !LLM_PROVIDERS_WITHOUT_EMBEDDINGS.has(LLM_PROVIDER) ||
-    EMBEDDINGS_PROVIDER !== "openai"
+    explicit ||
+    provider !== "openai" ||
+    DEFAULT_EMBEDDINGS_PROVIDER[LLM_PROVIDER] === LLM_PROVIDER
   ) {
     return;
   }
+
   console.warn(
     `Embeddings: ${LLM_PROVIDER} has no embeddings API — falling back to OpenAI (${model}). ` +
-      `Set EMBEDDINGS_PROVIDER to choose explicitly.`
+      "Set EMBEDDINGS_PROVIDER to choose explicitly."
   );
   implicitFallbackLogged = true;
 }
 
 export async function createEmbeddings(modelOverride?: string): Promise<Embeddings> {
-  const provider = EMBEDDINGS_PROVIDER;
+  const { provider, explicit } = resolveEmbeddingsProviderAtCall();
 
   const model = modelOverride ?? EMBEDDINGS_MODEL ?? DEFAULTS[provider];
-  maybeLogImplicitFallback(model);
+  maybeLogImplicitFallback(provider, explicit, model);
   assertEmbeddingsProviderKey(provider);
 
   switch (provider) {

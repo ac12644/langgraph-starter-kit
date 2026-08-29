@@ -294,7 +294,7 @@ When `EMBEDDINGS_PROVIDER` is unset it defaults from `LLM_PROVIDER`:
 **Anthropic, Groq and DeepSeek have no embeddings API**, so their implicit
 default is OpenAI. That fallback is logged once, with a hint to set
 `EMBEDDINGS_PROVIDER`. An explicit `EMBEDDINGS_PROVIDER=deepseek` is invalid
-and errors at startup.
+and errors when embeddings are initialized (for example, when the RAG app starts).
 
 The embeddings key is validated on demand inside `createEmbeddings()`, not at
 `env.ts` import time — non-RAG users never need an embeddings key.

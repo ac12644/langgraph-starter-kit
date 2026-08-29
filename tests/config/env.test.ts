@@ -56,6 +56,19 @@ describe("env config", () => {
     vi.unstubAllEnvs();
   });
 
+
+
+  it("does not throw on invalid EMBEDDINGS_PROVIDER at env import time", async () => {
+    vi.stubEnv("LLM_PROVIDER", "openai");
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("EMBEDDINGS_PROVIDER", "azure");
+
+    const env = await import("../../src/config/env");
+    expect(env.EMBEDDINGS_PROVIDER_RAW).toBe("azure");
+
+    vi.unstubAllEnvs();
+  });
+
   it("parses PORT and LLM_TEMPERATURE as numbers", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-key");
     vi.stubEnv("PORT", "8080");

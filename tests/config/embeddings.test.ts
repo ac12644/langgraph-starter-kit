@@ -11,7 +11,7 @@ describe("embeddings config", () => {
   });
 
   it("implicit fallback to OpenAI requires OPENAI_API_KEY", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => { });
     vi.stubEnv("LLM_PROVIDER", "deepseek");
     vi.stubEnv("DEEPSEEK_API_KEY", "test-deepseek-key");
     vi.stubEnv("OPENAI_API_KEY", "");
@@ -25,6 +25,7 @@ describe("embeddings config", () => {
     vi.stubEnv("LLM_PROVIDER", "deepseek");
     vi.stubEnv("DEEPSEEK_API_KEY", "test-deepseek-key");
     vi.stubEnv("EMBEDDINGS_PROVIDER", "ollama");
+    vi.stubEnv("OPENAI_API_KEY", "");
 
     const { createEmbeddings } = await import("../../src/config/embeddings");
     const embeddings = await createEmbeddings();
@@ -32,22 +33,24 @@ describe("embeddings config", () => {
     expect(typeof embeddings.embedQuery).toBe("function");
   });
 
-  it("throws on explicit invalid embeddings provider", async () => {
-    vi.stubEnv("LLM_PROVIDER", "deepseek");
-    vi.stubEnv("DEEPSEEK_API_KEY", "test-deepseek-key");
+  it("throws on explicit invalid embeddings provider when embeddings are created", async () => {
+    vi.stubEnv("LLM_PROVIDER", "openai");
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
     vi.stubEnv("EMBEDDINGS_PROVIDER", "deepseek");
 
-    await expect(import("../../src/config/env")).rejects.toThrow(
-      /Invalid EMBEDDINGS_PROVIDER/
-    );
+    const { createEmbeddings } = await import("../../src/config/embeddings");
+
+    await expect(createEmbeddings()).rejects.toThrow(/Invalid EMBEDDINGS_PROVIDER/);
   });
 
   it("defaults embeddings provider to openai for openai chat", async () => {
     vi.stubEnv("LLM_PROVIDER", "openai");
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
 
-    const env = await import("../../src/config/env");
-    expect(env.EMBEDDINGS_PROVIDER).toBe("openai");
+    const { createEmbeddings } = await import("../../src/config/embeddings");
+    const embeddings = await createEmbeddings();
+
+    expect(typeof embeddings.embedQuery).toBe("function");
   });
 
   it("accepts EMBEDDINGS_MODEL pass-through without error", async () => {
@@ -67,18 +70,20 @@ describe("embeddings config", () => {
     vi.stubEnv("OPENAI_API_KEY", "");
 
     const env = await import("../../src/config/env");
-    expect(env.EMBEDDINGS_PROVIDER).toBe("openai");
+    expect(env.EMBEDDINGS_PROVIDER_RAW).toBeUndefined();
   });
 
   it("logs implicit fallback once", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => { });
     vi.stubEnv("LLM_PROVIDER", "deepseek");
     vi.stubEnv("DEEPSEEK_API_KEY", "test-deepseek-key");
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
 
     const { createEmbeddings } = await import("../../src/config/embeddings");
     await createEmbeddings();
+    await createEmbeddings();
 
+    expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("deepseek has no embeddings API")
     );
