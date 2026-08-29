@@ -36,10 +36,27 @@ export function assertProviderKey(provider: LlmProvider): void {
   }
 }
 
+export const VALID_EMBEDDINGS_PROVIDERS = ["openai", "google", "ollama"] as const;
+export type EmbeddingsProvider = (typeof VALID_EMBEDDINGS_PROVIDERS)[number];
+
+export const DEFAULT_EMBEDDINGS_PROVIDER: Record<LlmProvider, EmbeddingsProvider> = {
+  openai: "openai",
+  anthropic: "openai", // Anthropic has no native embeddings API; fall back to OpenAI.
+  google: "google",
+  groq: "openai",
+  ollama: "ollama",
+  deepseek: "openai",
+};
+
 export const LLM_PROVIDER = resolveProvider();
 
 // Fail fast: validate the default provider's key at startup.
 assertProviderKey(LLM_PROVIDER);
+
+// Keep raw input in env config; embeddings provider parsing/validation is
+// deferred to createEmbeddings() so non-RAG users are unaffected.
+export const EMBEDDINGS_PROVIDER_RAW = process.env.EMBEDDINGS_PROVIDER?.trim();
+export const EMBEDDINGS_MODEL = process.env.EMBEDDINGS_MODEL || undefined;
 
 export const LLM_MODEL = process.env.LLM_MODEL || undefined;
 export const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? 0);

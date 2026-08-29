@@ -96,7 +96,7 @@ export async function startServer(): Promise<void> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`RAG app unavailable (embeddings failed): ${msg}`);
-    console.warn("  /rag routes are disabled. Set OPENAI_API_KEY, or use a provider with its own embeddings.");
+    console.warn("  /rag routes are disabled. Set EMBEDDINGS_PROVIDER (and its API key), or fix the embeddings error above.");
   }
 
   // Build apps with MCP tools available
