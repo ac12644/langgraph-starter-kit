@@ -5,6 +5,7 @@ import { stdin, stdout } from "node:process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -74,13 +75,13 @@ const PROVIDERS: Record<string, { envKey: string; defaultModel: string }> = {
   deepseek: { envKey: "DEEPSEEK_API_KEY", defaultModel: "deepseek-v4-flash" },
 };
 
-interface Config {
+export interface Config {
   name: string;
   provider: string;
   patterns: string[];
 }
 
-function generateEnv(config: Config): string {
+export function generateEnv(config: Config): string {
   const prov = PROVIDERS[config.provider];
   const lines = [
     `# LLM Provider`,
@@ -112,7 +113,7 @@ function generateEnv(config: Config): string {
   return lines.join("\n") + "\n";
 }
 
-function generatePackageJson(config: Config): string {
+export function generatePackageJson(config: Config): string {
   const deps: Record<string, string> = {
     "@langchain/core": "^1.2.3",
     "@langchain/langgraph": "^1.4.8",
@@ -164,7 +165,7 @@ function generatePackageJson(config: Config): string {
   return JSON.stringify(pkg, null, 2) + "\n";
 }
 
-function generateTsConfig(): string {
+export function generateTsConfig(): string {
   return JSON.stringify(
     {
       compilerOptions: {
@@ -664,7 +665,7 @@ ${supervisorTest}});
 }
 
 // Pattern-specific: only files for selected patterns are generated
-function getPatternFiles(
+export function getPatternFiles(
   config: Config
 ): { path: string; content: string }[] {
   const files: { path: string; content: string }[] = [];
@@ -1148,7 +1149,11 @@ Provider: ${provider}${RESET}
   }
 }
 
-main().catch((err) => {
-  console.error("Error:", err);
-  process.exit(1);
-});
+// Only run the interactive CLI when executed directly. Importing this module
+// (e.g. from the scaffolder tests) must not prompt.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error("Error:", err);
+    process.exit(1);
+  });
+}
