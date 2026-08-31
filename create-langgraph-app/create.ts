@@ -914,32 +914,121 @@ export async function createSwarmApp() {
   console.log("Result:", swarm.messages.at(-1)?.content);`);
   }
 
-  if (config.patterns.includes("hitl")) {
+  if (config.patterns.includes("rag")) {
+    // 1. Scaffold the actual working RAG application code
+    files.push({
+      path: "src/apps/rag.ts",
+      content: `import { getLlm } from "../config/llm";
+import { getCheckpointer } from "../config/checkpointer";
+import { createEmbeddings } from "../config/embeddings";
+import { makeAgent } from "../agents/factory";
+import {
+  buildVectorStore,
+  createRetrievalTool,
+  SAMPLE_DOCS,
+  type InMemoryVectorStore,
+} from "../tools/rag";
+
+let _vectorStore: InMemoryVectorStore | null = null;
+
+/**
+ * Initialize the RAG vector store with sample documents.
+ * Call this before creating the RAG app. Safe to call multiple times.
+ */
+export async function initRagStore(
+  customDocs?: string[],
+): Promise<InMemoryVectorStore> {
+  if (_vectorStore) return _vectorStore;
+
+  const embeddings = await createEmbeddings();
+  _vectorStore = await buildVectorStore(embeddings, customDocs ?? SAMPLE_DOCS);
+  console.log(\`RAG: indexed \${_vectorStore.size} chunks\`);
+  return _vectorStore;
+}
+
+/**
+ * \`vectorStore\` is optional so this factory can be registered directly in
+ * \`langgraph.json\` — LangGraph Studio calls graph factories with no vector
+ * store, and initRagStore() is memoized, so passing one is just an
+ * optimization for callers that already built it.
+ */
+export async function createRagApp(vectorStore?: InMemoryVectorStore) {
+  const llm = await getLlm();
+  const retrievalTool = createRetrievalTool(vectorStore ?? (await initRagStore()));
+
+  // A single agent with a retrieval tool — no supervisor layer needed.
+  return makeAgent({
+    name: "rag_agent",
+    llm,
+    tools: [retrievalTool],
+    system: [
+      "You are a knowledgeable assistant with access to a knowledge base.",
+      "ALWAYS search the knowledge base before answering questions.",
+      "Base your answers on the retrieved documents. If the knowledge base",
+      "doesn't contain relevant information, say so clearly.",
+      "Cite which parts of the retrieved context support your answer.",
+    ].join("\\n"),
+    checkpointer: await getCheckpointer(),
+  });
+}
+`,
+    });
+
+    // 2. Scaffold the required helper tools file for RAG to compile smoothly
+    files.push({
+      path: "src/tools/rag.ts",
+      content: `import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
+import { Embeddings } from "@langchain/core/embeddings";
+
+export interface InMemoryVectorStore {
+  size: number;
+  search: (query: string) => Promise<string[]>;
+}
+
+export const SAMPLE_DOCS = [
+  "The supervisor pattern uses a central coordinator agent to delegate clear subtasks to specialized worker nodes.",
+  "The swarm pattern utilizes peer-to-peer agent transfers using command routing handoffs for open conversational states."
+];
+
+export async function buildVectorStore(embeddings: Embeddings, documents: string[]): Promise<InMemoryVectorStore> {
+  const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 500, chunkOverlap: 50 });
+  const chunks = await splitter.createDocuments(documents);
+  
+  return {
+    size: chunks.length,
+    search: async (query: string) => chunks.map(c => c.pageContent)
+  };
+}
+
+export function createRetrievalTool(vectorStore: InMemoryVectorStore) {
+  return {
+    name: "search_knowledge_base",
+    description: "Searches internal architecture knowledge for supervisor and swarm configurations.",
+    func: async (input: string) => (await vectorStore.search(input)).join("\\n\\n")
+  };
+}
+`,
+    });
+
+    imports.push(`import { createRagApp, initRagStore } from "./apps/rag";`);
+    demos.push(`  console.log("\\n=== RAG Demo ===");
+  // Initialize the database with knowledge base chunks before invoking
+  await initRagStore();
+  const ragApp = await createRagApp();
+  const rag = await ragApp.invoke(
+    { messages: [{ role: "user", content: "What is the supervisor pattern?" }] },
+    { configurable: { thread_id: "rag-demo" } }
+  );
+  console.log("Result:", rag.messages.at(-1)?.content);`);
+  }
+
+  if (config.patterns.includes("interrupt")) {
     files.push({
       path: "src/apps/interrupt.ts",
-      content: `import { z } from "zod";
-import { tool } from "@langchain/core/tools";
-import { interrupt, MemorySaver } from "@langchain/langgraph";
+      content: `import { MemorySaver } from "@langchain/langgraph";
 import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
-
-const deleteRecord = tool(
-  async (args) => {
-    const decision = interrupt({
-      type: "approval_required",
-      message: \`Delete record "\${args.id}"? This cannot be undone.\`,
-      args,
-    });
-    return decision === "yes"
-      ? \`Record "\${args.id}" deleted.\`
-      : \`Deletion of "\${args.id}" rejected.\`;
-  },
-  {
-    name: "delete_record",
-    description: "Delete a record by ID. Requires human approval.",
-    schema: z.object({ id: z.string() }),
-  }
-);
+import { deleteRecord } from "../tools/local";
 
 export async function createInterruptApp() {
   const llm = await getLlm();
@@ -955,85 +1044,7 @@ export async function createInterruptApp() {
 }
 `,
     });
-    imports.push(`import { Command } from "@langchain/langgraph";`);
-    imports.push(`import { createInterruptApp } from "./apps/interrupt";`);
-    demos.push(`  console.log("\\n=== Human-in-the-Loop Demo ===");
-  const interruptApp = await createInterruptApp();
-  const hitlCfg = { configurable: { thread_id: "hitl-demo" } };
-  await interruptApp.invoke(
-    { messages: [{ role: "user", content: "delete record rec_2" }] },
-    hitlCfg
-  );
-  const state = await interruptApp.getState(hitlCfg) as any;
-  if ((state.next ?? []).length > 0) {
-    console.log("Graph paused — approving...");
-    const resumed = await interruptApp.invoke(new Command({ resume: "yes" }), hitlCfg);
-    console.log("Result:", resumed.messages.at(-1)?.content);
-  }`);
-  }
 
-  if (config.patterns.includes("structured")) {
-    files.push({
-      path: "src/apps/analyst.ts",
-      content: `import { z } from "zod";
-import { toolStrategy } from "langchain";
-import { MemorySaver } from "@langchain/langgraph";
-import { getLlm } from "../config/llm";
-import { makeAgent } from "../agents/factory";
-
-const SummarySchema = z.object({
-  title: z.string(),
-  keyPoints: z.array(z.string()),
-  sentiment: z.enum(["positive", "negative", "neutral"]),
-});
-
-export async function createAnalystApp() {
-  const llm = await getLlm();
-
-  // The structured result is returned on the structuredResponse key of the
-  // final state. toolStrategy works with every provider; models with native
-  // structured output support could use providerStrategy instead.
-  return makeAgent({
-    name: "analyst", llm, tools: [],
-    system: "Analyze text and produce structured summaries.",
-    responseFormat: toolStrategy(SummarySchema),
-    checkpointer: new MemorySaver(),
-  });
-}
-`,
-    });
-    imports.push(`import { createAnalystApp } from "./apps/analyst";`);
-    demos.push(`  console.log("\\n=== Structured Output Demo ===");
-  const analystApp = await createAnalystApp();
-  const analysis = await analystApp.invoke(
-    { messages: [{ role: "user", content: "Analyze: Revenue grew 25% but churn increased 8%." }] },
-    { configurable: { thread_id: "analyst-demo" } }
-  );
-  const structured = (analysis as Record<string, unknown>).structuredResponse;
-  console.log("Result:", JSON.stringify(structured ?? analysis.messages.at(-1)?.content));`);
-  }
-
-  if (config.patterns.includes("rag")) {
-    files.push({
-      path: "src/apps/rag.ts",
-      content: `import { MemorySaver } from "@langchain/langgraph";
-import { getLlm } from "../config/llm";
-import { makeAgent } from "../agents/factory";
-// TODO: Add your vector store, embeddings, and retrieval tool here.
-// See the full starter kit for a complete RAG implementation:
-// https://github.com/ac12644/langgraph-starter-kit
-
-export async function createRagApp() {
-  const llm = await getLlm();
-
-  return makeAgent({
-    name: "rag_agent", llm, tools: [],
-    system: "You are a knowledgeable assistant. Answer questions based on your knowledge.",
-    checkpointer: new MemorySaver(),
-  });
-}
-`,
-    });
     imports.push(`import { createRagApp } from "./apps/rag";`);
     demos.push(`  console.log("\\n=== RAG Demo ===");
   const ragApp = await createRagApp();
