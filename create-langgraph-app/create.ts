@@ -468,6 +468,16 @@ server.setErrorHandler(async (error: FastifyError, _req: FastifyRequest, reply: 
 });
 
 async function start() {
+  // If RAG pattern is active, handle lazy database indexing initialization safely
+  if (${config.patterns.includes("rag")}) {
+    try {
+      const { initRagStore } = await import("./apps/rag");
+      await initRagStore();
+    } catch (e: any) {
+      console.warn("⚠️ RAG Initialization deferred: Embeddings setup failed.", e.message);
+    }
+  }
+
   const apps: Record<string, AppGraph> = {
 ${entries}
   };
@@ -674,6 +684,65 @@ function getPatternFiles(
   files.push({ path: "src/config/llm.ts", content: generateLlmConfig(config) });
   files.push({ path: "src/agents/factory.ts", content: generateAgentFactory() });
   files.push({ path: "src/agents/supervisor.ts", content: generateSupervisorHelper() });
+
+  // --- ADDED NEW CONFIGURATION GENERATORS ---
+  files.push({
+    path: "src/config/checkpointer.ts",
+    content: `import { MemorySaver } from "@langchain/langgraph";
+
+let _checkpointer: MemorySaver | null = null;
+
+/**
+ * Returns a shared in-memory checkpointer instance for development persistence.
+ */
+export async function getCheckpointer(): Promise<MemorySaver> {
+  if (!_checkpointer) {
+    _checkpointer = new MemorySaver();
+  }
+  return _checkpointer;
+}
+`,
+  });
+
+  files.push({
+    path: "src/config/embeddings.ts",
+    content: `import { OpenAIEmbeddings } from "@langchain/openai";
+import { AnthropicEmbeddings } from "@langchain/anthropic";
+import { GoogleVertexAIEmbeddings } from "@langchain/google-vertexai";
+import { GroqEmbeddings } from "@langchain/groq";
+import { OllamaEmbeddings } from "@langchain/ollama";
+import { Embeddings } from "@langchain/core/embeddings";
+
+/**
+ * Creates the appropriate Embeddings provider based on configuration.
+ * Supports lazy validation so missing keys don't break un-related routes.
+ */
+export async function createEmbeddings(): Promise<Embeddings> {
+  const provider = process.env.EMBEDDINGS_PROVIDER || process.env.LLM_PROVIDER || "openai";
+
+  switch (provider.toLowerCase()) {
+    case "openai":
+      return new OpenAIEmbeddings({
+        modelName: process.env.EMBEDDINGS_MODEL || "text-embedding-3-small",
+      });
+    case "anthropic":
+      return new AnthropicEmbeddings();
+    case "google":
+      return new GoogleVertexAIEmbeddings();
+    case "groq":
+      return new GroqEmbeddings();
+    case "ollama":
+      return new OllamaEmbeddings({
+        baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
+        model: process.env.EMBEDDINGS_MODEL || "nomic-embed-text",
+      });
+    default:
+      throw new Error(\`Unsupported embeddings provider: \${provider}\`);
+  }
+}
+`,
+  });
+  // ------------------------------------------
 
   // Index file — imports vary by selected patterns
   const imports: string[] = [];
@@ -974,15 +1043,22 @@ export async function createRagApp(vectorStore?: InMemoryVectorStore) {
 `,
     });
 
-    // 2. Scaffold the required helper tools file for RAG to compile smoothly
+    // 2. Scaffold the mathematical Vector Store using raw embeddings + tool() wrapping
     files.push({
       path: "src/tools/rag.ts",
       content: `import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { Embeddings } from "@langchain/core/embeddings";
+import { tool } from "@langchain/core/tools";
+import { z } from "zod";
+
+export interface VectorNode {
+  pageContent: string;
+  embedding: number[];
+}
 
 export interface InMemoryVectorStore {
   size: number;
-  search: (query: string) => Promise<string[]>;
+  search: (query: string, k?: number) => Promise<string[]>;
 }
 
 export const SAMPLE_DOCS = [
@@ -990,22 +1066,60 @@ export const SAMPLE_DOCS = [
   "The swarm pattern utilizes peer-to-peer agent transfers using command routing handoffs for open conversational states."
 ];
 
+function cosineSimilarity(vecA: number[], vecB: number[]): number {
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < vecA.length; i++) {
+    dotProduct += vecA[i] * vecB[i];
+    normA += vecA[i] * vecA[i];
+    normB += vecB[i] * vecB[i];
+  }
+  return normA === 0 || normB === 0 ? 0 : dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
 export async function buildVectorStore(embeddings: Embeddings, documents: string[]): Promise<InMemoryVectorStore> {
   const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 500, chunkOverlap: 50 });
-  const chunks = await splitter.createDocuments(documents);
+  const docs = await splitter.createDocuments(documents);
+  const rawTexts = docs.map(d => d.pageContent);
   
+  // Calculate true programmatic vector matrices using the passed embeddings provider
+  const vectorEmbeddings = await embeddings.embedDocuments(rawTexts);
+  const nodes: VectorNode[] = docs.map((d, idx) => ({
+    pageContent: d.pageContent,
+    embedding: vectorEmbeddings[idx],
+  }));
+
   return {
-    size: chunks.length,
-    search: async (query: string) => chunks.map(c => c.pageContent)
+    size: nodes.length,
+    search: async (query: string, k = 2) => {
+      const queryEmbedding = await embeddings.embedQuery(query);
+      const scored = nodes.map(node => ({
+        pageContent: node.pageContent,
+        score: cosineSimilarity(queryEmbedding, node.embedding)
+      }));
+      return scored
+        .sort((a, b) => b.score - a.score)
+        .slice(0, k)
+        .map(n => n.pageContent);
+    }
   };
 }
 
 export function createRetrievalTool(vectorStore: InMemoryVectorStore) {
-  return {
-    name: "search_knowledge_base",
-    description: "Searches internal architecture knowledge for supervisor and swarm configurations.",
-    func: async (input: string) => (await vectorStore.search(input)).join("\\n\\n")
-  };
+  return tool(
+    async ({ query }) => {
+      const results = await vectorStore.search(query);
+      return results.join("\\n\\n");
+    },
+    {
+      name: "search_knowledge_base",
+      description: "Searches internal architecture knowledge for supervisor, RAG, and swarm configurations.",
+      schema: z.object({
+        query: z.string().describe("The semantic query string to look up in the vector dataset context."),
+      }),
+    }
+  );
 }
 `,
     });
@@ -1022,38 +1136,6 @@ export function createRetrievalTool(vectorStore: InMemoryVectorStore) {
   console.log("Result:", rag.messages.at(-1)?.content);`);
   }
 
-  if (config.patterns.includes("interrupt")) {
-    files.push({
-      path: "src/apps/interrupt.ts",
-      content: `import { MemorySaver } from "@langchain/langgraph";
-import { getLlm } from "../config/llm";
-import { makeAgent } from "../agents/factory";
-import { deleteRecord } from "../tools/local";
-
-export async function createInterruptApp() {
-  const llm = await getLlm();
-
-  // A single agent with a checkpointer — interrupt() inside delete_record
-  // pauses the graph; resume with Command({ resume: "yes" }) on the thread.
-  return makeAgent({
-    name: "db_admin", llm,
-    tools: [deleteRecord],
-    system: "You are a database administrator.",
-    checkpointer: new MemorySaver(),
-  });
-}
-`,
-    });
-
-    imports.push(`import { createRagApp } from "./apps/rag";`);
-    demos.push(`  console.log("\\n=== RAG Demo ===");
-  const ragApp = await createRagApp();
-  const rag = await ragApp.invoke(
-    { messages: [{ role: "user", content: "What is RAG and how does it work?" }] },
-    { configurable: { thread_id: "rag-demo" } }
-  );
-  console.log("Result:", rag.messages.at(-1)?.content);`);
-  }
 
   // HTTP server — routes only the apps that were generated
   files.push({ path: "src/server.ts", content: generateServer(config) });
