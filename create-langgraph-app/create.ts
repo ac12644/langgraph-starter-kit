@@ -81,6 +81,23 @@ export interface Config {
   patterns: string[];
 }
 
+/**
+ * Extra .env lines when RAG borrows another provider's embeddings — that key is
+ * required too, which is not obvious from the chat provider alone.
+ */
+function embeddingsEnvLines(config: Config): string[] {
+  if (!config.patterns.includes("rag")) return [];
+  const e = embeddingsFor(config.provider);
+  if (!e.borrowed) return [];
+  return [
+    `# RAG embeddings: ${config.provider} has no embeddings API, so RAG uses ${e.id}`,
+    `# and needs this key in addition to your chat provider's.`,
+    `${e.envKey}=`,
+    `# EMBEDDINGS_MODEL=${e.defaultModel}`,
+    ``,
+  ];
+}
+
 export function generateEnv(config: Config): string {
   const prov = PROVIDERS[config.provider];
   const lines = [
@@ -100,16 +117,7 @@ export function generateEnv(config: Config): string {
     `# LLM_MODEL=${prov.defaultModel}`,
     `LLM_TEMPERATURE=0`,
     ``,
-    ...(config.patterns.includes("rag") &&
-    (EMBEDDINGS_FOR_PROVIDER[config.provider] ?? "openai") !== config.provider
-      ? [
-          `# RAG embeddings: ${config.provider} has no embeddings API, so RAG uses`,
-          `# ${EMBEDDINGS_FOR_PROVIDER[config.provider] ?? "openai"} and needs its key as well.`,
-          `${PROVIDER_EMBEDDINGS[EMBEDDINGS_FOR_PROVIDER[config.provider] ?? "openai"].envKey}=`,
-          `# EMBEDDINGS_MODEL=${PROVIDER_EMBEDDINGS[EMBEDDINGS_FOR_PROVIDER[config.provider] ?? "openai"].defaultModel}`,
-          ``,
-        ]
-      : []),
+    ...embeddingsEnvLines(config),
     ...(config.provider === "deepseek"
       ? [`# DeepSeek reasoning mode (optional — "disabled" | "enabled")`, `# DEEPSEEK_THINKING=disabled`, ``]
       : []),
@@ -152,8 +160,7 @@ export function generatePackageJson(config: Config): string {
   // RAG needs an embeddings SDK, which is a different package when the chat
   // provider has no embeddings API of its own (anthropic, groq, deepseek).
   if (config.patterns.includes("rag")) {
-    const embPkg = PROVIDER_EMBEDDINGS[EMBEDDINGS_FOR_PROVIDER[config.provider] ?? "openai"].pkg;
-    if (!deps[embPkg]) deps[embPkg] = "latest";
+    deps[embeddingsFor(config.provider).pkg] ??= "latest";
   }
 
   const pkg = {
@@ -257,17 +264,8 @@ const PROVIDER_LLM: Record<
   deepseek: { pkg: "@langchain/deepseek", className: "ChatDeepSeek", modelArg: "model", defaultModel: "deepseek-v4-flash", extraArgs: 'modelKwargs: { thinking: { type: DEEPSEEK_THINKING } }' },
 };
 
-// Which provider supplies embeddings for a given chat provider. Anthropic, Groq
-// and DeepSeek have no embeddings API, so they fall back to OpenAI's.
-const EMBEDDINGS_FOR_PROVIDER: Record<string, "openai" | "google" | "ollama"> = {
-  openai: "openai",
-  anthropic: "openai",
-  google: "google",
-  groq: "openai",
-  ollama: "ollama",
-  deepseek: "openai",
-};
-
+// Only these three have a native embeddings API. Anthropic, Groq and DeepSeek
+// have none, so RAG on those providers borrows OpenAI's.
 const PROVIDER_EMBEDDINGS: Record<
   string,
   { pkg: string; className: string; defaultModel: string; envKey: string }
@@ -277,6 +275,12 @@ const PROVIDER_EMBEDDINGS: Record<
   ollama: { pkg: "@langchain/ollama", className: "OllamaEmbeddings", defaultModel: "nomic-embed-text", envKey: "" },
 };
 
+/** Resolves which provider supplies embeddings for a given chat provider. */
+function embeddingsFor(chatProvider: string) {
+  const id = chatProvider in PROVIDER_EMBEDDINGS ? chatProvider : "openai";
+  return { id, borrowed: id !== chatProvider, ...PROVIDER_EMBEDDINGS[id] };
+}
+
 /**
  * The scaffold installs one embeddings SDK — the one for the provider resolved
  * at generation time — so the generated config imports only that SDK. Switching
@@ -284,20 +288,19 @@ const PROVIDER_EMBEDDINGS: Record<
  * branch here.
  */
 function generateEmbeddingsConfig(config: Config): string {
-  const providerId = EMBEDDINGS_FOR_PROVIDER[config.provider] ?? "openai";
-  const e = PROVIDER_EMBEDDINGS[providerId];
-  const fellBack = providerId !== config.provider;
+  const e = embeddingsFor(config.provider);
+  const borrowedNote = e.borrowed
+    ? `// ${config.provider} has no embeddings API, so RAG uses ${e.id} — it needs\n` +
+      `// ${e.envKey} in addition to your chat provider's key.\n`
+    : "";
 
   return `import type { Embeddings } from "@langchain/core/embeddings";
 import { ${e.className} } from "${e.pkg}";
 
-const PROVIDER = "${providerId}";
+${borrowedNote}// Set EMBEDDINGS_MODEL in .env to override the default model.
+const PROVIDER = "${e.id}";
 const DEFAULT_MODEL = "${e.defaultModel}";
-${e.envKey ? `const REQUIRED_KEY = "${e.envKey}";` : `const REQUIRED_KEY = "";`}
-${fellBack ? `
-// ${config.provider} has no embeddings API, so embeddings use ${providerId}.
-// That means RAG needs ${e.envKey} in addition to your chat provider's key.
-// Set EMBEDDINGS_MODEL to override the model.` : ""}
+const REQUIRED_KEY = "${e.envKey}";
 
 /**
  * Builds the embeddings client for RAG.
@@ -511,15 +514,17 @@ function selectedApps(config: Config) {
 function generateServer(config: Config): string {
   const apps = selectedApps(config);
   const imports = apps.map((a) => `import { ${a.fn} } from "${a.path}";`).join("\n");
+  // RAG is the only app that can fail at startup — it needs an embeddings
+  // provider, and providers without one borrow another provider's key. Build it
+  // in a try/catch so a missing key costs /rag rather than every route.
+  const hasRag = apps.some((a) => a.route === "rag");
+
   const entries = apps
     .filter((a) => a.route !== "rag")
     .map((a) => `    "${a.route}": asApp(await ${a.fn}()),`)
     .join("\n");
-
-  // RAG is the one app that can fail at startup: it needs an embeddings
-  // provider, and providers without one fall back to another provider's key.
-  // Build it in a try/catch so a missing key costs /rag, not every route.
-  const ragInit = apps.some((a) => a.route === "rag")
+  const ragEntry = hasRag ? `\n    ...(ragApp ? { rag: ragApp } : {}),` : "";
+  const ragInit = hasRag
     ? `  let ragApp: AppGraph | undefined;
   try {
     ragApp = asApp(await createRagApp());
@@ -530,9 +535,6 @@ function generateServer(config: Config): string {
   }
 
 `
-    : "";
-  const ragEntry = apps.some((a) => a.route === "rag")
-    ? `\n    ...(ragApp ? { rag: ragApp } : {}),`
     : "";
 
   return `import "./config/env";
