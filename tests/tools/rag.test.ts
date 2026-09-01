@@ -57,6 +57,25 @@ describe("InMemoryVectorStore", () => {
     const results = await store.search("cats", 2);
     expect(results).toHaveLength(2);
   });
+
+  it("ranks zero-vector documents at a stable zero score", async () => {
+    const zeroVectorEmbeddings = {
+      embedDocuments: vi.fn(async () => [[0, 0], [1, 0]]),
+      embedQuery: vi.fn(async () => [1, 0]),
+    } as unknown as Embeddings;
+    const store = new InMemoryVectorStore(zeroVectorEmbeddings);
+    const { Document } = await import("@langchain/core/documents");
+
+    await store.addDocuments([
+      new Document({ pageContent: "zero vector" }),
+      new Document({ pageContent: "matching vector" }),
+    ]);
+
+    await expect(store.search("query", 2)).resolves.toEqual([
+      "matching vector",
+      "zero vector",
+    ]);
+  });
 });
 
 describe("buildVectorStore", () => {

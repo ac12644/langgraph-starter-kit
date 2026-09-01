@@ -18,7 +18,8 @@ function cosineSimilarity(a: number[], b: number[]): number {
     normA += a[i] * a[i];
     normB += b[i] * b[i];
   }
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+  // A zero vector would otherwise yield NaN, which sorts unpredictably.
+  return normA === 0 || normB === 0 ? 0 : dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
 export class InMemoryVectorStore {
