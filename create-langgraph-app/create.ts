@@ -511,7 +511,29 @@ function selectedApps(config: Config) {
 function generateServer(config: Config): string {
   const apps = selectedApps(config);
   const imports = apps.map((a) => `import { ${a.fn} } from "${a.path}";`).join("\n");
-  const entries = apps.map((a) => `    "${a.route}": asApp(await ${a.fn}()),`).join("\n");
+  const entries = apps
+    .filter((a) => a.route !== "rag")
+    .map((a) => `    "${a.route}": asApp(await ${a.fn}()),`)
+    .join("\n");
+
+  // RAG is the one app that can fail at startup: it needs an embeddings
+  // provider, and providers without one fall back to another provider's key.
+  // Build it in a try/catch so a missing key costs /rag, not every route.
+  const ragInit = apps.some((a) => a.route === "rag")
+    ? `  let ragApp: AppGraph | undefined;
+  try {
+    ragApp = asApp(await createRagApp());
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(\`RAG app unavailable (embeddings failed): \${msg}\`);
+    console.warn("  /rag routes are disabled; every other app still works.");
+  }
+
+`
+    : "";
+  const ragEntry = apps.some((a) => a.route === "rag")
+    ? `\n    ...(ragApp ? { rag: ragApp } : {}),`
+    : "";
 
   return `import "./config/env";
 import { fastify, type FastifyError, type FastifyReply, type FastifyRequest } from "fastify";
@@ -554,8 +576,8 @@ server.setErrorHandler(async (error: FastifyError, _req: FastifyRequest, reply: 
 });
 
 async function start() {
-  const apps: Record<string, AppGraph> = {
-${entries}
+${ragInit}  const apps: Record<string, AppGraph> = {
+${entries}${ragEntry}
   };
 
   const getApp = (name: string) => {
