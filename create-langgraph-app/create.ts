@@ -100,6 +100,16 @@ export function generateEnv(config: Config): string {
     `# LLM_MODEL=${prov.defaultModel}`,
     `LLM_TEMPERATURE=0`,
     ``,
+    ...(config.patterns.includes("rag") &&
+    (EMBEDDINGS_FOR_PROVIDER[config.provider] ?? "openai") !== config.provider
+      ? [
+          `# RAG embeddings: ${config.provider} has no embeddings API, so RAG uses`,
+          `# ${EMBEDDINGS_FOR_PROVIDER[config.provider] ?? "openai"} and needs its key as well.`,
+          `${PROVIDER_EMBEDDINGS[EMBEDDINGS_FOR_PROVIDER[config.provider] ?? "openai"].envKey}=`,
+          `# EMBEDDINGS_MODEL=${PROVIDER_EMBEDDINGS[EMBEDDINGS_FOR_PROVIDER[config.provider] ?? "openai"].defaultModel}`,
+          ``,
+        ]
+      : []),
     ...(config.provider === "deepseek"
       ? [`# DeepSeek reasoning mode (optional — "disabled" | "enabled")`, `# DEEPSEEK_THINKING=disabled`, ``]
       : []),
@@ -138,6 +148,13 @@ export function generatePackageJson(config: Config): string {
     deepseek: "@langchain/deepseek",
   };
   deps[provPkg[config.provider]] = "latest";
+
+  // RAG needs an embeddings SDK, which is a different package when the chat
+  // provider has no embeddings API of its own (anthropic, groq, deepseek).
+  if (config.patterns.includes("rag")) {
+    const embPkg = PROVIDER_EMBEDDINGS[EMBEDDINGS_FOR_PROVIDER[config.provider] ?? "openai"].pkg;
+    if (!deps[embPkg]) deps[embPkg] = "latest";
+  }
 
   const pkg = {
     name: config.name,
@@ -239,6 +256,74 @@ const PROVIDER_LLM: Record<
   ollama: { pkg: "@langchain/ollama", className: "ChatOllama", modelArg: "model", defaultModel: "llama3.2" },
   deepseek: { pkg: "@langchain/deepseek", className: "ChatDeepSeek", modelArg: "model", defaultModel: "deepseek-v4-flash", extraArgs: 'modelKwargs: { thinking: { type: DEEPSEEK_THINKING } }' },
 };
+
+// Which provider supplies embeddings for a given chat provider. Anthropic, Groq
+// and DeepSeek have no embeddings API, so they fall back to OpenAI's.
+const EMBEDDINGS_FOR_PROVIDER: Record<string, "openai" | "google" | "ollama"> = {
+  openai: "openai",
+  anthropic: "openai",
+  google: "google",
+  groq: "openai",
+  ollama: "ollama",
+  deepseek: "openai",
+};
+
+const PROVIDER_EMBEDDINGS: Record<
+  string,
+  { pkg: string; className: string; defaultModel: string; envKey: string }
+> = {
+  openai: { pkg: "@langchain/openai", className: "OpenAIEmbeddings", defaultModel: "text-embedding-3-small", envKey: "OPENAI_API_KEY" },
+  google: { pkg: "@langchain/google-genai", className: "GoogleGenerativeAIEmbeddings", defaultModel: "text-embedding-004", envKey: "GOOGLE_API_KEY" },
+  ollama: { pkg: "@langchain/ollama", className: "OllamaEmbeddings", defaultModel: "nomic-embed-text", envKey: "" },
+};
+
+/**
+ * The scaffold installs one embeddings SDK — the one for the provider resolved
+ * at generation time — so the generated config imports only that SDK. Switching
+ * EMBEDDINGS_PROVIDER later means installing the matching package and adding a
+ * branch here.
+ */
+function generateEmbeddingsConfig(config: Config): string {
+  const providerId = EMBEDDINGS_FOR_PROVIDER[config.provider] ?? "openai";
+  const e = PROVIDER_EMBEDDINGS[providerId];
+  const fellBack = providerId !== config.provider;
+
+  return `import type { Embeddings } from "@langchain/core/embeddings";
+import { ${e.className} } from "${e.pkg}";
+
+const PROVIDER = "${providerId}";
+const DEFAULT_MODEL = "${e.defaultModel}";
+${e.envKey ? `const REQUIRED_KEY = "${e.envKey}";` : `const REQUIRED_KEY = "";`}
+${fellBack ? `
+// ${config.provider} has no embeddings API, so embeddings use ${providerId}.
+// That means RAG needs ${e.envKey} in addition to your chat provider's key.
+// Set EMBEDDINGS_MODEL to override the model.` : ""}
+
+/**
+ * Builds the embeddings client for RAG.
+ *
+ * Validation happens here rather than at import time: a project that never uses
+ * RAG should not need an embeddings key, and an eager throw would take down
+ * every route rather than just the RAG one.
+ */
+export async function createEmbeddings(modelOverride?: string): Promise<Embeddings> {
+  const requested = process.env.EMBEDDINGS_PROVIDER?.trim().toLowerCase();
+  if (requested && requested !== PROVIDER) {
+    throw new Error(
+      \`EMBEDDINGS_PROVIDER="\${requested}" but this project was scaffolded with "\${PROVIDER}" embeddings. \` +
+        \`Install the matching SDK and add a branch in src/config/embeddings.ts.\`
+    );
+  }
+
+  if (REQUIRED_KEY && !process.env[REQUIRED_KEY]) {
+    throw new Error(\`\${REQUIRED_KEY} is required for "\${PROVIDER}" embeddings but is not set in .env\`);
+  }
+
+  const model = modelOverride ?? process.env.EMBEDDINGS_MODEL?.trim() ?? DEFAULT_MODEL;
+  return new ${e.className}({ model });
+}
+`;
+}
 
 function generateLlmConfig(config: Config): string {
   const p = PROVIDER_LLM[config.provider] ?? PROVIDER_LLM.openai;
@@ -1015,21 +1100,129 @@ export async function createAnalystApp() {
   }
 
   if (config.patterns.includes("rag")) {
+    files.push({ path: "src/config/embeddings.ts", content: generateEmbeddingsConfig(config) });
+    files.push({
+      path: "src/tools/rag.ts",
+      content: `import { z } from "zod";
+import { tool } from "@langchain/core/tools";
+import type { Embeddings } from "@langchain/core/embeddings";
+import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
+
+/** In-memory vector store — no external database required. */
+export interface InMemoryVectorStore {
+  size: number;
+  search: (query: string, k?: number) => Promise<string[]>;
+}
+
+interface Chunk {
+  content: string;
+  embedding: number[];
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  // Guard the zero vector: without this an empty embedding yields NaN and
+  // silently corrupts the ranking.
+  return normA === 0 || normB === 0 ? 0 : dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+export async function buildVectorStore(
+  embeddings: Embeddings,
+  documents: string[],
+  chunkSize = 500,
+  chunkOverlap = 100,
+): Promise<InMemoryVectorStore> {
+  const splitter = new RecursiveCharacterTextSplitter({ chunkSize, chunkOverlap });
+  const docs = await splitter.createDocuments(documents);
+  const texts = docs.map((d) => d.pageContent);
+  const vectors = await embeddings.embedDocuments(texts);
+  const chunks: Chunk[] = texts.map((content, i) => ({ content, embedding: vectors[i] }));
+
+  return {
+    size: chunks.length,
+    search: async (query: string, k = 4) => {
+      if (chunks.length === 0) return [];
+      const queryVector = await embeddings.embedQuery(query);
+      return chunks
+        .map((c) => ({ content: c.content, score: cosineSimilarity(queryVector, c.embedding) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, k)
+        .map((c) => c.content);
+    },
+  };
+}
+
+export function createRetrievalTool(vectorStore: InMemoryVectorStore) {
+  return tool(
+    async ({ query, k }) => {
+      const results = await vectorStore.search(query, k);
+      if (results.length === 0) return "No relevant documents found. Try rephrasing.";
+      return results.map((r, i) => "[" + (i + 1) + "] " + r).join("\\n\\n");
+    },
+    {
+      name: "search_knowledge_base",
+      description:
+        "Search the knowledge base for relevant information. Use this to find context before answering.",
+      schema: z.object({
+        query: z.string().describe("The search query"),
+        k: z.number().optional().default(4).describe("Number of results to return"),
+      }),
+    }
+  );
+}
+
+/** Replace these with your own documents. */
+export const SAMPLE_DOCS = [
+  "LangGraph is a framework for building stateful, multi-actor applications with LLMs. It uses a graph architecture where nodes are computational steps and edges define the flow between them. Key features include persistence via checkpointing, streaming, and human-in-the-loop workflows.",
+  "The supervisor pattern uses a central coordinator that routes tasks to specialized worker agents and aggregates their results. Workers are stateless and run in isolated context windows, so the supervisor only sees each worker's final answer.",
+  "The swarm pattern lets peer agents hand off control to each other with transfer tools. Each agent is a graph node, and the active agent persists across turns, so a conversation resumes with whichever agent last held it.",
+];
+`,
+    });
     files.push({
       path: "src/apps/rag.ts",
       content: `import { MemorySaver } from "@langchain/langgraph";
 import { getLlm } from "../config/llm";
+import { createEmbeddings } from "../config/embeddings";
 import { makeAgent } from "../agents/factory";
-// TODO: Add your vector store, embeddings, and retrieval tool here.
-// See the full starter kit for a complete RAG implementation:
-// https://github.com/ac12644/langgraph-starter-kit
+import {
+  buildVectorStore,
+  createRetrievalTool,
+  SAMPLE_DOCS,
+  type InMemoryVectorStore,
+} from "../tools/rag";
 
-export async function createRagApp() {
+let _vectorStore: InMemoryVectorStore | null = null;
+
+/** Indexes the documents once; later calls reuse the same store. */
+export async function initRagStore(documents: string[] = SAMPLE_DOCS): Promise<InMemoryVectorStore> {
+  if (!_vectorStore) {
+    const embeddings = await createEmbeddings();
+    _vectorStore = await buildVectorStore(embeddings, documents);
+    console.log("RAG: indexed " + _vectorStore.size + " chunks");
+  }
+  return _vectorStore;
+}
+
+export async function createRagApp(vectorStore?: InMemoryVectorStore) {
   const llm = await getLlm();
+  const retrievalTool = createRetrievalTool(vectorStore ?? (await initRagStore()));
 
   return makeAgent({
-    name: "rag_agent", llm, tools: [],
-    system: "You are a knowledgeable assistant. Answer questions based on your knowledge.",
+    name: "rag_agent",
+    llm,
+    tools: [retrievalTool],
+    system: [
+      "You are a knowledgeable assistant with access to a knowledge base.",
+      "ALWAYS search the knowledge base before answering questions.",
+      "Base your answers on the retrieved documents. If they do not contain",
+      "the answer, say so clearly rather than guessing.",
+    ].join("\\n"),
     checkpointer: new MemorySaver(),
   });
 }
@@ -1039,7 +1232,7 @@ export async function createRagApp() {
     demos.push(`  console.log("\\n=== RAG Demo ===");
   const ragApp = await createRagApp();
   const rag = await ragApp.invoke(
-    { messages: [{ role: "user", content: "What is RAG and how does it work?" }] },
+    { messages: [{ role: "user", content: "What is the supervisor pattern?" }] },
     { configurable: { thread_id: "rag-demo" } }
   );
   console.log("Result:", rag.messages.at(-1)?.content);`);
