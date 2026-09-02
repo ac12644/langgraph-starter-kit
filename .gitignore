@@ -43,3 +43,6 @@ firebase-debug.log
 # Misc
 .tmp/
 .cache/
+
+# scaffolder parity test scratch dirs
+.tmp-rag-parity-*/
