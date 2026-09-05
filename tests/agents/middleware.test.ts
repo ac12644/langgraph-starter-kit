@@ -49,22 +49,41 @@ describe("middleware", () => {
     expect(capped).toBeLessThan(12);
   });
 
-  it("makeSupervisor accepts middleware and still answers", async () => {
-    const llm = new ScriptedToolCallingModel([new AIMessage("done")]);
-    const worker = makeAgent({ name: "worker", llm, tools: [] });
+  it("makeSupervisor applies middleware to the supervisor", async () => {
+    // The supervisor keeps delegating; without a cap it drains the queue.
+    const looping = () =>
+      Array.from({ length: 12 }, (_, i) =>
+        new AIMessage({
+          content: "",
+          tool_calls: [{ id: `s${i}`, name: "worker", args: { task: "again" } }],
+        })
+      );
 
-    const app = await makeSupervisor({
-      subagents: [{ name: "worker", description: "Does work.", agent: worker }],
-      llm,
-      checkpointer: new MemorySaver(),
-      middleware: [modelCallLimitMiddleware({ runLimit: 5, exitBehavior: "end" })],
-    });
+    const build = async (
+      middleware?: Parameters<typeof makeAgent>[0]["middleware"],
+    ) => {
+      const llm = new ScriptedToolCallingModel(looping());
+      const worker = makeAgent({ name: "worker", llm, tools: [] });
+      const app = await makeSupervisor({
+        subagents: [{ name: "worker", description: "Does work.", agent: worker }],
+        llm,
+        checkpointer: new MemorySaver(),
+        ...(middleware ? { middleware } : {}),
+      });
+      const r = await app.invoke(
+        { messages: [{ role: "user", content: "go" }] },
+        { configurable: { thread_id: `mw-${middleware ? "capped" : "open"}` } },
+      );
+      return r.messages.filter((m) => m.getType() === "ai").length;
+    };
 
-    const result = await app.invoke(
-      { messages: [{ role: "user", content: "hi" }] },
-      { configurable: { thread_id: "mw-test" } }
-    );
-    expect(result.messages.at(-1)?.content).toBe("done");
+    const capped = await build([
+      modelCallLimitMiddleware({ runLimit: 2, exitBehavior: "end" }),
+    ]);
+    const uncapped = await build().catch(() => Infinity);
+
+    // Fails if makeSupervisor stops forwarding middleware to the agent.
+    expect(capped).toBeLessThan(uncapped);
   });
 
   it("omitting middleware leaves behavior unchanged", async () => {
