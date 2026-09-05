@@ -2,7 +2,7 @@ import { z } from "zod";
 import { tool } from "@langchain/core/tools";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { BaseCheckpointSaver, BaseStore } from "@langchain/langgraph-checkpoint";
-import { makeAgent, type AgentGraph } from "./factory";
+import { makeAgent, type AgentGraph, type MakeAgentParams } from "./factory";
 
 /**
  * Supervisor via the "subagents" pattern: a main agent coordinates workers
@@ -59,6 +59,8 @@ export interface MakeSupervisorParams {
   prompt?: string;
   checkpointer?: BaseCheckpointSaver;
   store?: BaseStore;
+  /** Middleware for the supervisor itself — see docs/BUILDING.md#middleware. */
+  middleware?: MakeAgentParams["middleware"];
 }
 
 export async function makeSupervisor({
@@ -68,6 +70,7 @@ export async function makeSupervisor({
   prompt,
   checkpointer,
   store,
+  middleware,
 }: MakeSupervisorParams) {
   const defaultPrompt =
     "You coordinate a team of specialists. Delegate work to them via " +
@@ -93,5 +96,6 @@ export async function makeSupervisor({
     system: prompt ?? defaultPrompt,
     checkpointer: resolvedCheckpointer,
     store: resolvedStore,
+    middleware,
   });
 }

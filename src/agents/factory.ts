@@ -18,6 +18,11 @@ export interface MakeAgentParams {
   checkpointer?: BaseCheckpointSaver;
   /** Cross-thread memory store. Like `checkpointer`, set it on the outermost agent only. */
   store?: BaseStore;
+  /**
+   * Middleware wrapping the agent loop — summarization, call limits, retries,
+   * PII redaction. See docs/BUILDING.md#middleware.
+   */
+  middleware?: CreateAgentParams["middleware"];
 }
 
 /**
@@ -36,6 +41,7 @@ export function makeAgent({
   responseFormat,
   checkpointer,
   store,
+  middleware,
 }: MakeAgentParams) {
   return createAgent({
     name,
@@ -45,6 +51,7 @@ export function makeAgent({
     ...(responseFormat ? { responseFormat } : {}),
     ...(checkpointer ? { checkpointer } : {}),
     ...(store ? { store } : {}),
+    ...(middleware ? { middleware } : {}),
   });
 }
 

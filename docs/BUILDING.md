@@ -13,6 +13,7 @@ that aren't obvious until they bite you.
 - [Pattern 2: Handoffs (swarm)](#pattern-2-handoffs-swarm)
 - [Choosing a pattern](#choosing-a-pattern)
 - [Checkpointers and interrupts — the rule that matters](#checkpointers-and-interrupts--the-rule-that-matters)
+- [Middleware](#middleware)
 - [Structured output](#structured-output)
 - [Persistence and threads](#persistence-and-threads)
 - [What the HTTP server does for you](#what-the-http-server-does-for-you)
@@ -217,6 +218,60 @@ await app.invoke(new Command({ resume: "yes" }), { configurable: { thread_id } }
 Over HTTP this is `POST /:app/invoke` → `POST /:app/resume` (see the README's
 HITL section). Interrupts propagate through arbitrarily nested agent layers —
 the `support` app raises them from tools two levels deep.
+
+## Middleware
+
+Middleware wraps the agent loop — it can rewrite what goes to the model, cap how
+often the model is called, retry failures, or redact content. It is the main
+thing `createAgent` adds over the deprecated `createReactAgent`, and
+`makeAgent`, `makeSupervisor` and `makeSwarm` all accept it:
+
+```typescript
+import { modelCallLimitMiddleware, summarizationMiddleware } from "langchain";
+
+makeAgent({
+  name: "researcher",
+  llm,
+  tools: [webSearch],
+  middleware: [modelCallLimitMiddleware({ runLimit: 20, exitBehavior: "end" })],
+});
+```
+
+`langchain` ships ~20 built-ins. The four worth knowing for this kit:
+
+| Middleware | Use it when |
+|---|---|
+| `summarizationMiddleware` | Conversations run long enough to threaten the context window |
+| `modelCallLimitMiddleware` | An agent can loop — caps cost and runtime |
+| `modelRetryMiddleware` / `modelFallbackMiddleware` | A transient 429 or 5xx shouldn't fail the whole run |
+| `piiRedactionMiddleware` | Messages carry emails, names, or payment details |
+
+Two apps use them, and both illustrate *when* rather than just how:
+
+- **`support`** summarizes. Support threads are long and this kit persists them,
+  so the context window is a real ceiling.
+- **`researcher`** caps model calls at 20 with `exitBehavior: "end"`, which
+  returns whatever it has rather than discarding the run.
+
+### The provider trap
+
+`summarizationMiddleware` takes its own model, and it is tempting to hardcode a
+cheap one:
+
+```typescript
+model: await getLlm({ model: "gpt-4o-mini" })   // breaks on Ollama, Anthropic, …
+```
+
+`getLlm({ model })` overrides the *model name* but keeps the env-configured
+**provider**, so this asks whichever provider is configured for an OpenAI model.
+Pass `llm` to stay provider-agnostic, or override only when you know which
+provider you are on.
+
+### Order matters
+
+Middleware runs in array order on the way in and reverses on the way out, so put
+guards that should see the original input first, and anything rewriting messages
+last.
 
 ## Structured output
 
