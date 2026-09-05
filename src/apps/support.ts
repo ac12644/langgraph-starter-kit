@@ -1,3 +1,4 @@
+import { summarizationMiddleware } from "langchain";
 import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
 import { makeSupervisor } from "../agents/supervisor";
@@ -81,6 +82,20 @@ export async function createSupportApp() {
       },
     ],
     llm,
+    // Support threads run long, and this kit persists them. Without this the
+    // conversation eventually exceeds the context window; summarization
+    // compresses older turns while keeping the recent ones verbatim.
+    //
+    // Summarizing with the configured model keeps this provider-agnostic.
+    // Pass a cheaper one — getLlm({ model: "gpt-4o-mini" }) — if you know
+    // which provider you are on; the model name is provider-specific.
+    middleware: [
+      summarizationMiddleware({
+        model: llm,
+        trigger: { tokens: 4000 },
+        keep: { messages: 20 },
+      }),
+    ],
     supervisorName: "support_router",
     prompt: [
       "You are the front-desk router for a customer support system.",

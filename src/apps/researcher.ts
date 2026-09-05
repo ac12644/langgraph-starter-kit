@@ -1,3 +1,4 @@
+import { modelCallLimitMiddleware } from "langchain";
 import { getLlm } from "../config/llm";
 import { webSearch, scrapeUrl } from "../tools/web";
 import { makeAgent } from "../agents/factory";
@@ -44,6 +45,12 @@ export async function createResearcherApp() {
       },
     ],
     llm,
+    // The researcher searches, reads, and re-searches, so a vague prompt can
+    // loop it indefinitely. Cap the calls rather than the wall clock: `end`
+    // returns whatever it has instead of throwing away the run.
+    middleware: [
+      modelCallLimitMiddleware({ runLimit: 20, exitBehavior: "end" }),
+    ],
     supervisorName: "research_supervisor",
     prompt:
       "You coordinate a research team. Delegate research tasks to the researcher first, " +
