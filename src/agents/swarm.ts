@@ -9,6 +9,7 @@ import {
 } from "@langchain/langgraph";
 import type { BaseCheckpointSaver, BaseStore } from "@langchain/langgraph-checkpoint";
 import type { AgentGraph } from "./factory";
+import { resolvePersistence } from "./persistence";
 
 /**
  * Swarm via the "handoffs" pattern: each agent is a graph node, and handoff
@@ -83,20 +84,5 @@ export async function makeSwarm({
     );
   }
 
-  // Lazy import: config/env validates provider API keys at import time,
-  // which callers supplying their own checkpointer (e.g. tests) shouldn't
-  // have to satisfy. Callers that bring their own checkpointer are expected
-  // to bring their own store too, if they want one.
-  let resolvedCheckpointer = checkpointer;
-  let resolvedStore = store;
-  if (!resolvedCheckpointer) {
-    const config = await import("../config/checkpointer");
-    resolvedCheckpointer = await config.getCheckpointer();
-    resolvedStore ??= config.getStore();
-  }
-
-  return builder.compile({
-    checkpointer: resolvedCheckpointer,
-    store: resolvedStore,
-  });
+  return builder.compile(await resolvePersistence({ checkpointer, store }));
 }

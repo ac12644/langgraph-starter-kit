@@ -3,6 +3,7 @@ import { tool } from "@langchain/core/tools";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { BaseCheckpointSaver, BaseStore } from "@langchain/langgraph-checkpoint";
 import { makeAgent, type AgentGraph, type MakeAgentParams } from "./factory";
+import { resolvePersistence } from "./persistence";
 
 /**
  * Supervisor via the "subagents" pattern: a main agent coordinates workers
@@ -77,25 +78,14 @@ export async function makeSupervisor({
     `your tools (${subagents.map((s) => s.name).join(", ")}) and answer ` +
     "the user only once the delegated work is done.";
 
-  // Lazy import: config/env validates provider API keys at import time,
-  // which callers supplying their own checkpointer (e.g. tests) shouldn't
-  // have to satisfy. Callers that bring their own checkpointer are expected
-  // to bring their own store too, if they want one.
-  let resolvedCheckpointer = checkpointer;
-  let resolvedStore = store;
-  if (!resolvedCheckpointer) {
-    const config = await import("../config/checkpointer");
-    resolvedCheckpointer = await config.getCheckpointer();
-    resolvedStore ??= config.getStore();
-  }
+  const resolved = await resolvePersistence({ checkpointer, store });
 
   return makeAgent({
     name: supervisorName,
     llm,
     tools: subagents.map(subagentTool),
     system: prompt ?? defaultPrompt,
-    checkpointer: resolvedCheckpointer,
-    store: resolvedStore,
+    ...resolved,
     middleware,
   });
 }
