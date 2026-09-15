@@ -2,6 +2,14 @@
 
 Retrieval-Augmented Generation agent with an in-memory vector store. Index documents, search semantically, and answer questions grounded in your knowledge base.
 
+## Run it
+
+```bash
+npm run example:rag
+```
+
+Indexes three sample policy documents, then asks questions against them — including one the corpus cannot answer.
+
 ## Architecture
 
 ```mermaid

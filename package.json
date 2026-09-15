@@ -1,7 +1,7 @@
 {
   "name": "langgraph-starter-kit",
   "version": "2.4.0",
-  "description": "Production-ready multi-agent starter kit with LangGraph — supports swarm, supervisor, HITL, structured output, and 5 LLM providers",
+  "description": "Production-ready multi-agent starter kit with LangGraph — supports swarm, supervisor, HITL, structured output, and 6 LLM providers",
   "private": true,
   "type": "module",
   "keywords": [
@@ -28,6 +28,9 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "dev:http": "tsx src/server/index.ts",
+    "example:rag": "tsx examples/rag-agent/index.ts",
+    "example:support": "tsx examples/customer-support/index.ts",
+    "example:research": "tsx examples/research-agent/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

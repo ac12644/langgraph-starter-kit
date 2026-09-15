@@ -7,8 +7,13 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "outDir": "dist"
   },
-  "include": ["src"]
+  "include": [
+    "src",
+    "examples"
+  ]
 }

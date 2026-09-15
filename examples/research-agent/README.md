@@ -2,6 +2,14 @@
 
 A supervisor coordinates a researcher and a writer to produce polished reports from web research.
 
+## Run it
+
+```bash
+npm run example:research "the topic you want"
+```
+
+Researches a topic you pass in and streams the report as it is written. With a reasoning model most tokens are thinking rather than answer text, so progress shows as dots until the report begins.
+
 ## Architecture
 
 ```mermaid

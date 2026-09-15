@@ -2,6 +2,14 @@
 
 Multi-agent customer support system with intelligent routing, specialist agents, and human escalation.
 
+## Run it
+
+```bash
+npm run example:support
+```
+
+Runs a two-turn conversation on one thread, pauses at a refund approval, then resumes with a decision.
+
 ## Architecture
 
 ```mermaid
