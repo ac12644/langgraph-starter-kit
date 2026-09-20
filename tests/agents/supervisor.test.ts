@@ -148,8 +148,18 @@ describe("makeSupervisor (subagents-as-tools)", () => {
       config
     );
 
+    interface PendingInterrupt {
+      value?: Record<string, unknown>;
+    }
+
+    /** getState's generics don't narrow here; this is the slice we actually read. */
+    interface PausedState {
+      next: string[];
+      tasks: { interrupts?: PendingInterrupt[] }[];
+    }
+
     // The graph should be paused waiting for approval
-    const paused = await app.getState(config);
+    const paused = (await app.getState(config)) as unknown as PausedState;
     expect(paused.next.length).toBeGreaterThan(0);
     const interrupts = paused.tasks.flatMap((t) => t.interrupts ?? []);
     expect(interrupts.length).toBeGreaterThan(0);

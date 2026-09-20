@@ -33,8 +33,7 @@
     "example:research": "tsx examples/research-agent/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@langchain/anthropic": "^1.3.26",
