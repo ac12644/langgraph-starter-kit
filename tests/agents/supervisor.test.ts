@@ -149,7 +149,11 @@ describe("makeSupervisor (subagents-as-tools)", () => {
     );
 
     // The graph should be paused waiting for approval
-    const paused = await app.getState(config);
+    // getState() doesn't narrow for this graph type; read only the slice we need.
+    const paused = (await app.getState(config)) as {
+      next: string[];
+      tasks: { interrupts?: { value?: unknown }[] }[];
+    };
     expect(paused.next.length).toBeGreaterThan(0);
     const interrupts = paused.tasks.flatMap((t) => t.interrupts ?? []);
     expect(interrupts.length).toBeGreaterThan(0);
