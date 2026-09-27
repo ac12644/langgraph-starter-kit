@@ -10,17 +10,17 @@ import { createResearcherApp } from "../apps/researcher";
 import { createRagApp } from "../apps/rag";
 import { createSupportApp } from "../apps/support";
 import { loadMcpTools } from "../tools/mcp";
-import { httpError, validateMessages } from "./validation";
+import { httpError, validateMessages, validateThreadId } from "./validation";
 
 // -- Types --
 
 interface InvokeBody {
-  messages?: { role: string; content: string }[];
-  thread_id?: string;
+  messages?: unknown;
+  thread_id?: unknown;
 }
 
 interface ResumeBody {
-  thread_id?: string;
+  thread_id?: unknown;
   decision?: string;
 }
 
@@ -123,8 +123,9 @@ export async function startServer(): Promise<void> {
 
   server.post<{ Params: { app: string } }>("/:app/invoke", async (req, reply) => {
     const app = getApp(req.params.app);
-    const { messages: rawMessages, thread_id = "default" } = parseBody<InvokeBody>(req.body);
-    const messages = validateMessages(rawMessages);
+    const body = parseBody<InvokeBody>(req.body);
+    const messages = validateMessages(body.messages);
+    const thread_id = validateThreadId(body.thread_id);
 
     const result = await app.invoke(
       { messages },
@@ -140,8 +141,9 @@ export async function startServer(): Promise<void> {
 
   server.post<{ Params: { app: string } }>("/:app/stream", async (req, reply) => {
     const app = getApp(req.params.app);
-    const { messages: rawMessages, thread_id = "default" } = parseBody<InvokeBody>(req.body);
-    const messages = validateMessages(rawMessages);
+    const body = parseBody<InvokeBody>(req.body);
+    const messages = validateMessages(body.messages);
+    const thread_id = validateThreadId(body.thread_id);
 
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -180,7 +182,9 @@ export async function startServer(): Promise<void> {
 
   server.post<{ Params: { app: string } }>("/:app/resume", async (req, reply) => {
     const app = getApp(req.params.app);
-    const { thread_id = "default", decision } = parseBody<ResumeBody>(req.body);
+    const body = parseBody<ResumeBody>(req.body);
+    const thread_id = validateThreadId(body.thread_id);
+    const { decision } = body;
 
     if (decision === undefined) {
       return reply.status(400).send({ error: '"decision" field is required' });

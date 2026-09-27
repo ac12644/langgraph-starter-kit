@@ -557,17 +557,33 @@ function httpError(status: number, message: string) {
   return Object.assign(new Error(message), { statusCode: status });
 }
 
+// \`system\` is excluded: the app owns its system prompt, and accepting one
+// from the request lets any caller override it.
+const CLIENT_ROLES = ["user", "assistant"];
+
 /** Reject malformed bodies before they reach the agent. */
 function validateMessages(raw: unknown): { role: string; content: string }[] {
-  if (raw === undefined) return [];
   if (!Array.isArray(raw)) throw httpError(400, '"messages" must be an array');
+  if (raw.length === 0) throw httpError(400, '"messages" must not be empty');
   return raw.map((m, i) => {
     const { role, content } = (m ?? {}) as Record<string, unknown>;
     if (typeof role !== "string" || typeof content !== "string") {
       throw httpError(400, \`messages[\${i}] needs string "role" and "content"\`);
     }
+    if (!CLIENT_ROLES.includes(role)) {
+      throw httpError(400, \`messages[\${i}].role must be one of: \${CLIENT_ROLES.join(", ")}\`);
+    }
     return { role, content };
   });
+}
+
+/** Defaults to "default"; anything but a non-empty string is a 400, not a 500. */
+function validateThreadId(raw: unknown): string {
+  if (raw === undefined) return "default";
+  if (typeof raw !== "string" || raw.trim() === "") {
+    throw httpError(400, '"thread_id" must be a non-empty string');
+  }
+  return raw;
 }
 
 const server = fastify({ logger: false });
@@ -590,9 +606,9 @@ ${entries}${ragEntry}
 
   server.post<{ Params: { app: string } }>("/:app/invoke", async (req, reply) => {
     const app = getApp(req.params.app);
-    const body = (req.body ?? {}) as { messages?: unknown; thread_id?: string };
+    const body = (req.body ?? {}) as { messages?: unknown; thread_id?: unknown };
     const messages = validateMessages(body.messages);
-    const thread_id = body.thread_id ?? "default";
+    const thread_id = validateThreadId(body.thread_id);
 
     const result = await app.invoke({ messages }, { configurable: { thread_id } });
     const last = result.messages.at(-1);
@@ -605,9 +621,9 @@ ${entries}${ragEntry}
 
   server.post<{ Params: { app: string } }>("/:app/stream", async (req, reply) => {
     const app = getApp(req.params.app);
-    const body = (req.body ?? {}) as { messages?: unknown; thread_id?: string };
+    const body = (req.body ?? {}) as { messages?: unknown; thread_id?: unknown };
     const messages = validateMessages(body.messages);
-    const thread_id = body.thread_id ?? "default";
+    const thread_id = validateThreadId(body.thread_id);
 
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -633,12 +649,13 @@ ${entries}${ragEntry}
 
   server.post<{ Params: { app: string } }>("/:app/resume", async (req, reply) => {
     const app = getApp(req.params.app);
-    const body = (req.body ?? {}) as { thread_id?: string; decision?: string };
+    const body = (req.body ?? {}) as { thread_id?: unknown; decision?: string };
+    const thread_id = validateThreadId(body.thread_id);
     if (body.decision === undefined) {
       return reply.status(400).send({ error: '"decision" field is required' });
     }
     const result = await app.invoke(new Command({ resume: body.decision }), {
-      configurable: { thread_id: body.thread_id ?? "default" },
+      configurable: { thread_id },
     });
     const last = result.messages.at(-1);
     return reply.send({
