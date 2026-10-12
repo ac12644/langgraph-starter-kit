@@ -213,6 +213,8 @@ curl -X POST http://localhost:3000/interrupt/resume \
   -d '{"thread_id": "hitl-1", "decision": "yes"}'
 ```
 
+When a run pauses, the response's `interrupts` array holds what it's waiting on (empty when it finished). `/stream` sends an `{"type": "interrupt"}` event before `done`. `/resume` returns 404 for an unknown thread and 409 if the thread isn't waiting for a decision.
+
 ### 4. Structured Output
 
 Returns typed JSON validated by Zod (in the `structuredResponse` field of the response). Best for: **extracting structured data — summaries, classifications, entities**.
@@ -300,9 +302,9 @@ LANGSMITH_PROJECT=langgraph-starter-kit
 |---|---|---|
 | `/:app/invoke` | POST | Invoke agent, return final result |
 | `/:app/stream` | POST | SSE token streaming |
-| `/:app/resume` | POST | Resume paused graph (HITL) |
-| `/:app/threads/:id` | GET | Get thread state |
-| `/:app/threads/:id/history` | GET | Full state history |
+| `/:app/resume` | POST | Resume paused graph (HITL); 409 if nothing is pending |
+| `/:app/threads/:id` | GET | Get thread state; 404 if the thread doesn't exist |
+| `/:app/threads/:id/history` | GET | Full state history; 404 if the thread doesn't exist |
 | `/health` | GET | Health check |
 
 **Apps:** `swarm` `supervisor` `interrupt` `analyst` `researcher` `rag` `support`
