@@ -549,9 +549,20 @@ ${imports}
 interface AppGraph {
   invoke(input: unknown, config?: unknown): Promise<{ messages: BaseMessage[] } & Record<string, unknown>>;
   stream(input: unknown, config?: unknown): Promise<AsyncIterable<[unknown, { langgraph_node?: string } | undefined]>>;
-  getState(config: unknown): Promise<{ values?: unknown; next?: string[]; tasks?: unknown[] } | undefined>;
+  getState(config: unknown): Promise<ThreadState | undefined>;
+}
+interface ThreadState {
+  values?: unknown;
+  next?: string[];
+  tasks?: { interrupts?: { value?: unknown }[] }[];
+  createdAt?: string | null;
 }
 const asApp = (g: unknown) => g as AppGraph;
+
+/** What each pending interrupt() was given. Empty when the thread isn't paused. */
+function pendingInterrupts(state: ThreadState | undefined): unknown[] {
+  return (state?.tasks ?? []).flatMap((t) => t.interrupts ?? []).map((i) => i.value);
+}
 
 function httpError(status: number, message: string) {
   return Object.assign(new Error(message), { statusCode: status });
@@ -604,18 +615,29 @@ ${entries}${ragEntry}
     return app;
   };
 
+  // A thread that never ran still has a snapshot (values: {}); a checkpoint
+  // (createdAt) is what says it exists.
+  const getThread = async (app: AppGraph, thread_id: string) => {
+    const state = await app.getState({ configurable: { thread_id } });
+    if (!state?.createdAt) throw httpError(404, \`Thread "\${thread_id}" not found\`);
+    return state;
+  };
+
   server.post<{ Params: { app: string } }>("/:app/invoke", async (req, reply) => {
     const app = getApp(req.params.app);
     const body = (req.body ?? {}) as { messages?: unknown; thread_id?: unknown };
     const messages = validateMessages(body.messages);
     const thread_id = validateThreadId(body.thread_id);
 
-    const result = await app.invoke({ messages }, { configurable: { thread_id } });
+    const config = { configurable: { thread_id } };
+    const result = await app.invoke({ messages }, config);
     const last = result.messages.at(-1);
     return reply.send({
       messages: result.messages,
       structuredResponse: (result as Record<string, unknown>).structuredResponse ?? null,
       lastMessage: typeof last?.content === "string" ? last.content : JSON.stringify(last?.content),
+      // Non-empty = paused for approval; answer via POST /:app/resume.
+      interrupts: pendingInterrupts(await app.getState(config)),
     });
   });
 
@@ -639,6 +661,8 @@ ${entries}${ragEntry}
           send({ type: "token", content: chunk.content, node: metadata?.langgraph_node ?? "unknown" });
         }
       }
+      const interrupts = pendingInterrupts(await app.getState({ configurable: { thread_id } }));
+      if (interrupts.length > 0) send({ type: "interrupt", content: interrupts });
       send({ type: "done" });
     } catch (err) {
       send({ type: "error", content: err instanceof Error ? err.message : "Stream failed" });
@@ -649,25 +673,29 @@ ${entries}${ragEntry}
 
   server.post<{ Params: { app: string } }>("/:app/resume", async (req, reply) => {
     const app = getApp(req.params.app);
-    const body = (req.body ?? {}) as { thread_id?: unknown; decision?: string };
+    const body = (req.body ?? {}) as { thread_id?: unknown; decision?: unknown };
     const thread_id = validateThreadId(body.thread_id);
-    if (body.decision === undefined) {
-      return reply.status(400).send({ error: '"decision" field is required' });
+    if (typeof body.decision !== "string") throw httpError(400, '"decision" must be a string');
+
+    // Resuming a thread that isn't paused is a silent no-op — refuse it so an
+    // approval UI can't report "approved" for something that never waited.
+    if (pendingInterrupts(await getThread(app, thread_id)).length === 0) {
+      throw httpError(409, \`Thread "\${thread_id}" is not waiting for a decision\`);
     }
-    const result = await app.invoke(new Command({ resume: body.decision }), {
-      configurable: { thread_id },
-    });
+
+    const config = { configurable: { thread_id } };
+    const result = await app.invoke(new Command({ resume: body.decision }), config);
     const last = result.messages.at(-1);
     return reply.send({
       messages: result.messages,
       lastMessage: typeof last?.content === "string" ? last.content : JSON.stringify(last?.content),
+      // A resumed run can pause again (e.g. a second approval).
+      interrupts: pendingInterrupts(await app.getState(config)),
     });
   });
 
   server.get<{ Params: { app: string; threadId: string } }>("/:app/threads/:threadId", async (req, reply) => {
-    const app = getApp(req.params.app);
-    const state = await app.getState({ configurable: { thread_id: req.params.threadId } });
-    if (!state?.values) return reply.status(404).send({ error: "Thread not found" });
+    const state = await getThread(getApp(req.params.app), req.params.threadId);
     return reply.send({ values: state.values, next: state.next ?? [], tasks: state.tasks ?? [] });
   });
 

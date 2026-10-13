@@ -11,6 +11,7 @@ import { createRagApp } from "../apps/rag";
 import { createSupportApp } from "../apps/support";
 import { loadMcpTools } from "../tools/mcp";
 import { httpError, validateMessages, validateThreadId } from "./validation";
+import { getThread, pendingInterrupts, type ThreadState } from "./threads";
 
 // -- Types --
 
@@ -21,20 +22,13 @@ interface InvokeBody {
 
 interface ResumeBody {
   thread_id?: unknown;
-  decision?: string;
+  decision?: unknown;
 }
 
 interface StreamEvent {
-  type: "token" | "message" | "done" | "error";
+  type: "token" | "message" | "interrupt" | "done" | "error";
   content?: string | unknown;
   node?: string;
-}
-
-interface StateLike {
-  values?: unknown;
-  next?: string[];
-  tasks?: unknown[];
-  createdAt?: string | null;
 }
 
 /**
@@ -51,8 +45,8 @@ interface AppGraph {
     input: unknown,
     config?: unknown
   ): Promise<AsyncIterable<[unknown, { langgraph_node?: string } | undefined]>>;
-  getState(config: unknown): Promise<StateLike | undefined>;
-  getStateHistory(config: unknown): AsyncIterable<StateLike>;
+  getState(config: unknown): Promise<ThreadState | undefined>;
+  getStateHistory(config: unknown): AsyncIterable<ThreadState>;
 }
 
 const asApp = (graph: unknown) => graph as AppGraph;
@@ -127,15 +121,15 @@ export async function startServer(): Promise<void> {
     const messages = validateMessages(body.messages);
     const thread_id = validateThreadId(body.thread_id);
 
-    const result = await app.invoke(
-      { messages },
-      { configurable: { thread_id } }
-    );
+    const config = { configurable: { thread_id } };
+    const result = await app.invoke({ messages }, config);
 
     return reply.send({
       messages: result.messages,
       structuredResponse: (result as Record<string, unknown>).structuredResponse ?? null,
       lastMessage: lastMessageContent(result.messages),
+      // Non-empty = paused for approval; answer via POST /:app/resume.
+      interrupts: pendingInterrupts(await app.getState(config)),
     });
   });
 
@@ -171,6 +165,12 @@ export async function startServer(): Promise<void> {
         }
       }
 
+      const interrupts = pendingInterrupts(
+        await app.getState({ configurable: { thread_id } })
+      );
+      if (interrupts.length > 0) {
+        send({ type: "interrupt", content: interrupts });
+      }
       send({ type: "done" });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Stream failed";
@@ -186,18 +186,26 @@ export async function startServer(): Promise<void> {
     const thread_id = validateThreadId(body.thread_id);
     const { decision } = body;
 
-    if (decision === undefined) {
-      return reply.status(400).send({ error: '"decision" field is required' });
+    if (typeof decision !== "string") {
+      throw httpError(400, '"decision" must be a string');
     }
 
-    const result = await app.invoke(
-      new Command({ resume: decision }),
-      { configurable: { thread_id } }
-    );
+    // Without this check a Command sent to a thread that isn't paused is a
+    // silent no-op that still returns 200 — an approval UI would report
+    // "approved" for something that was never waiting.
+    const state = await getThread(app, thread_id);
+    if (pendingInterrupts(state).length === 0) {
+      throw httpError(409, `Thread "${thread_id}" is not waiting for a decision`);
+    }
+
+    const config = { configurable: { thread_id } };
+    const result = await app.invoke(new Command({ resume: decision }), config);
 
     return reply.send({
       messages: result.messages,
       lastMessage: lastMessageContent(result.messages),
+      // A resumed run can pause again (e.g. a second approval).
+      interrupts: pendingInterrupts(await app.getState(config)),
     });
   });
 
@@ -206,6 +214,8 @@ export async function startServer(): Promise<void> {
     async (req, reply) => {
       const app = getApp(req.params.app);
       const config = { configurable: { thread_id: req.params.threadId } };
+
+      await getThread(app, req.params.threadId);
 
       const states: Record<string, unknown>[] = [];
       for await (const snapshot of app.getStateHistory(config)) {
@@ -224,13 +234,7 @@ export async function startServer(): Promise<void> {
   server.get<{ Params: { app: string; threadId: string } }>(
     "/:app/threads/:threadId",
     async (req, reply) => {
-      const app = getApp(req.params.app);
-      const config = { configurable: { thread_id: req.params.threadId } };
-
-      const state = await app.getState(config);
-      if (!state?.values) {
-        return reply.status(404).send({ error: "Thread not found" });
-      }
+      const state = await getThread(getApp(req.params.app), req.params.threadId);
 
       return reply.send({
         values: state.values,
