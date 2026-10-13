@@ -2,13 +2,13 @@
   "node_version": "22",
   "dependencies": ["."],
   "graphs": {
-    "swarm": "./src/apps/swarm.ts:createSwarmApp",
-    "supervisor": "./src/apps/supervisor.ts:createSupervisorApp",
-    "interrupt": "./src/apps/interrupt.ts:createInterruptApp",
-    "analyst": "./src/apps/analyst.ts:createAnalystApp",
-    "researcher": "./src/apps/researcher.ts:createResearcherApp",
-    "rag": "./src/apps/rag.ts:createRagApp",
-    "support": "./src/apps/support.ts:createSupportApp"
+    "swarm": "./src/graphs.ts:swarm",
+    "supervisor": "./src/graphs.ts:supervisor",
+    "interrupt": "./src/graphs.ts:interrupt",
+    "analyst": "./src/graphs.ts:analyst",
+    "researcher": "./src/graphs.ts:researcher",
+    "rag": "./src/graphs.ts:rag",
+    "support": "./src/graphs.ts:support"
   },
   "env": ".env"
 }
