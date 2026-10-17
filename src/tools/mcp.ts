@@ -1,11 +1,11 @@
-import { MultiServerMCPClient } from "@langchain/mcp-adapters";
+import { MCPAdapter, type MCPAdapterConfig } from "@langchain/mcp-adapters";
 import type { DynamicStructuredTool } from "@langchain/core/tools";
 import { readFileSync, existsSync } from "fs";
 import { MCP_SERVERS_PATH } from "../config/env";
 
 interface McpLoadResult {
   tools: DynamicStructuredTool[];
-  client: MultiServerMCPClient | null;
+  client: MCPAdapter | null;
 }
 
 const EMPTY: McpLoadResult = { tools: [], client: null };
@@ -30,11 +30,28 @@ export async function loadMcpTools(configPath?: string): Promise<McpLoadResult> 
     return EMPTY;
   }
 
-  const client = new MultiServerMCPClient(
-    raw as ConstructorParameters<typeof MultiServerMCPClient>[0]
-  );
+  // mcp-servers.json is a flat map of servers. Keep tool names unprefixed, as
+  // in mcp-adapters 1.x; with this off, two servers exposing the same tool name
+  // throw instead of silently shadowing each other.
+  let client: MCPAdapter;
+  try {
+    client = new MCPAdapter({
+      servers: raw as MCPAdapterConfig["servers"],
+      prefixToolNameWithServerName: false,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Invalid MCP config at ${filePath}: ${msg}`);
+  }
 
-  const tools = await client.getTools();
+  let tools: DynamicStructuredTool[];
+  try {
+    tools = await client.listTools();
+  } catch (err) {
+    // Close any stdio servers that did start, or they keep the process alive.
+    await client.close().catch(() => {});
+    throw err;
+  }
 
   if (tools.length > 0) {
     console.log(`MCP: loaded ${tools.length} tool(s) from ${filePath}`);

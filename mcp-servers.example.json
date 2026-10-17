@@ -1,8 +1,8 @@
 {
-  "math": {
+  "everything": {
     "transport": "stdio",
     "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-math"],
+    "args": ["-y", "@modelcontextprotocol/server-everything"],
     "restart": {
       "enabled": true,
       "maxAttempts": 3,

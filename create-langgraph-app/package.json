@@ -28,10 +28,12 @@
     "type": "git",
     "url": "git+https://github.com/ac12644/langgraph-starter-kit.git"
   },
-  "dependencies": {},
   "devDependencies": {
     "@types/node": "^25.5.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
