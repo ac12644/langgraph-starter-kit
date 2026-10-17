@@ -652,10 +652,17 @@ ${entries}${ragEntry}
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
     });
-    const send = (e: unknown) => reply.raw.write(\`data: \${JSON.stringify(e)}\\n\\n\`);
+    const controller = new AbortController();
+    reply.raw.on("close", () => {
+      if (!reply.raw.writableFinished) controller.abort();
+    });
+    const send = (e: unknown) => {
+      if (controller.signal.aborted) return;
+      reply.raw.write(\`data: \${JSON.stringify(e)}\\n\\n\`);
+    };
 
     try {
-      const stream = await app.stream({ messages }, { configurable: { thread_id }, streamMode: "messages" });
+      const stream = await app.stream({ messages }, { configurable: { thread_id }, streamMode: "messages", signal: controller.signal });
       for await (const [chunk, metadata] of stream) {
         if (chunk instanceof AIMessageChunk) {
           send({ type: "token", content: chunk.content, node: metadata?.langgraph_node ?? "unknown" });
@@ -665,6 +672,7 @@ ${entries}${ragEntry}
       if (interrupts.length > 0) send({ type: "interrupt", content: interrupts });
       send({ type: "done" });
     } catch (err) {
+      if (controller.signal.aborted) return;
       send({ type: "error", content: err instanceof Error ? err.message : "Stream failed" });
     } finally {
       reply.raw.end();

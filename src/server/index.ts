@@ -145,14 +145,25 @@ export async function startServer(): Promise<void> {
       Connection: "keep-alive",
     });
 
+    const controller = new AbortController();
+    // Client went away (closed tab, refresh, dropped connection): stop the run.
+    reply.raw.on("close", () => {
+      if (!reply.raw.writableFinished) controller.abort();
+    });
+
     const send = (event: StreamEvent) => {
+      if (controller.signal.aborted) return;
       reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
     };
 
     try {
       const stream = await app.stream(
         { messages },
-        { configurable: { thread_id }, streamMode: "messages" }
+        {
+          configurable: { thread_id },
+          streamMode: "messages",
+          signal: controller.signal,
+        }
       );
 
       for await (const [chunk, metadata] of stream) {
@@ -173,6 +184,8 @@ export async function startServer(): Promise<void> {
       }
       send({ type: "done" });
     } catch (err) {
+      // An abort means the client left; there's nobody to report an error to.
+      if (controller.signal.aborted) return;
       const msg = err instanceof Error ? err.message : "Stream failed";
       send({ type: "error", content: msg });
     } finally {
