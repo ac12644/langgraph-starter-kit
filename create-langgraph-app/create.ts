@@ -133,17 +133,17 @@ export function generateEnv(config: Config): string {
 
 export function generatePackageJson(config: Config): string {
   const deps: Record<string, string> = {
-    "@langchain/core": "^1.2.3",
-    "@langchain/langgraph": "^1.4.8",
-    "@langchain/mcp-adapters": "^1.1.3",
+    "@langchain/core": "^1.2.18",
+    "@langchain/langgraph": "^1.5.1",
+    "@langchain/mcp-adapters": "^1.1.4",
     dotenv: "^17.4.2",
-    fastify: "^5.10.0",
-    langchain: "^1.5.3",
-    zod: "^4.4.3",
+    fastify: "^5.12.7",
+    langchain: "^1.5.18",
+    zod: "^4.6.7",
   };
 
   if (config.patterns.includes("rag")) {
-    deps["@langchain/textsplitters"] = "^1.0.1";
+    deps["@langchain/textsplitters"] = "^1.0.2";
   }
 
   // Provider package
@@ -179,10 +179,10 @@ export function generatePackageJson(config: Config): string {
       Object.entries(deps).sort(([a], [b]) => a.localeCompare(b))
     ),
     devDependencies: {
-      "@types/node": "^25.9.1",
-      tsx: "^4.22.4",
+      "@types/node": "^25.9.9",
+      tsx: "^4.23.15",
       typescript: "^6.0.3",
-      vitest: "^4.1.8",
+      vitest: "^4.1.12",
     },
   };
 
