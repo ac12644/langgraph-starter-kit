@@ -137,7 +137,6 @@ export function generatePackageJson(config: Config): string {
   const deps: Record<string, string> = {
     "@langchain/core": "^1.2.18",
     "@langchain/langgraph": "^1.5.1",
-    "@langchain/mcp-adapters": "^1.1.4",
     dotenv: "^17.4.2",
     fastify: "^5.12.7",
     langchain: "^1.5.18",
@@ -186,6 +185,7 @@ export function generatePackageJson(config: Config): string {
       typescript: "^6.0.3",
       vitest: "^4.1.12",
     },
+    engines: { node: ">=22" },
   };
 
   return JSON.stringify(pkg, null, 2) + "\n";

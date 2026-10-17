@@ -278,7 +278,9 @@ cp mcp-servers.example.json mcp-servers.json
 # Set MCP_SERVERS_PATH=./mcp-servers.json in .env
 ```
 
-Supports both `stdio` (local) and `http` (remote) transports. Tools are auto-injected into swarm and supervisor apps.
+Supports both `stdio` (local) and `http` (remote) transports. Tools are auto-injected into swarm and supervisor apps. The example starts the official `server-everything` demo server; delete the `remote-api` entry unless you have one.
+
+Tool names are used as-is (`echo`, not `everything_echo`), so two servers can't expose the same tool name; loading fails with an error naming the duplicate. Unknown options in the config are rejected at startup.
 
 ## Observability
 
