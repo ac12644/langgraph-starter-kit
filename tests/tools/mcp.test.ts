@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { MCPAdapter } from "@langchain/mcp-adapters";
 
 // None of these connect to a server: config validation happens when the
@@ -9,6 +9,12 @@ import { MCPAdapter } from "@langchain/mcp-adapters";
 describe("MCP config", () => {
   beforeEach(() => {
     vi.resetModules();
+    // src/tools/mcp imports the env config, which checks the provider key.
+    vi.stubEnv("LLM_PROVIDER", "ollama");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("the example config passes mcp-adapters validation", () => {
