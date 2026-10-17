@@ -137,7 +137,7 @@ export function generatePackageJson(config: Config): string {
   const deps: Record<string, string> = {
     "@langchain/core": "^1.2.18",
     "@langchain/langgraph": "^1.5.1",
-    dotenv: "^17.4.2",
+    dotenv: "^18.0.8",
     fastify: "^5.12.7",
     langchain: "^1.5.18",
     zod: "^4.6.7",
@@ -180,9 +180,9 @@ export function generatePackageJson(config: Config): string {
       Object.entries(deps).sort(([a], [b]) => a.localeCompare(b))
     ),
     devDependencies: {
-      "@types/node": "^25.9.9",
+      "@types/node": "^26.6.5",
       tsx: "^4.23.15",
-      typescript: "^6.0.3",
+      typescript: "^7.0.2",
       vitest: "^4.1.12",
     },
     engines: { node: ">=22" },
