@@ -24,9 +24,8 @@ interface PausedState {
   tasks?: { interrupts?: PendingInterrupt[] }[];
 }
 
-function lastText(messages: { content: unknown }[]): string {
-  const c = messages.at(-1)?.content;
-  return typeof c === "string" ? c : JSON.stringify(c);
+function lastText(messages: { text: string }[]): string {
+  return messages.at(-1)?.text ?? "";
 }
 
 async function main() {

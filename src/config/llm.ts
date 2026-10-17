@@ -9,10 +9,10 @@ import {
 } from "./env";
 
 const DEFAULTS: Record<LlmProvider, string> = {
-  openai: "gpt-4o-mini",
-  anthropic: "claude-sonnet-4-20250514",
-  google: "gemini-2.0-flash",
-  groq: "llama-3.3-70b-versatile",
+  openai: "gpt-6-luna",
+  anthropic: "claude-sonnet-5-5",
+  google: "gemini-3.6-flash",
+  groq: "openai/gpt-oss-120b",
   ollama: "llama3.2",
   deepseek: "deepseek-v4-flash",
 };
@@ -31,12 +31,17 @@ async function createLlm(opts: LlmOptions = {}): Promise<BaseChatModel> {
   assertProviderKey(provider);
 
   const model = opts.model ?? LLM_MODEL ?? DEFAULTS[provider];
-  const temperature = opts.temperature ?? LLM_TEMPERATURE;
+  // GPT-6 and Claude 4.7+ reject non-default temperatures, so OpenAI and
+  // Anthropic only get one when it was set explicitly.
+  const temperature =
+    opts.temperature ??
+    LLM_TEMPERATURE ??
+    (provider === "openai" || provider === "anthropic" ? undefined : 0);
 
   switch (provider) {
     case "anthropic": {
       const { ChatAnthropic } = await import("@langchain/anthropic");
-      return new ChatAnthropic({ modelName: model, temperature });
+      return new ChatAnthropic({ model, temperature });
     }
     case "google": {
       const { ChatGoogleGenerativeAI } = await import("@langchain/google-genai");
@@ -61,7 +66,8 @@ async function createLlm(opts: LlmOptions = {}): Promise<BaseChatModel> {
     case "openai":
     default: {
       const { ChatOpenAI } = await import("@langchain/openai");
-      return new ChatOpenAI({ modelName: model, temperature });
+      // GPT-6 models only take function tools over the Responses API.
+      return new ChatOpenAI({ model, temperature, useResponsesApi: true });
     }
   }
 }

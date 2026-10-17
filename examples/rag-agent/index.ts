@@ -49,7 +49,7 @@ async function main() {
     );
 
     const used = result.messages.some((m) => m.getType() === "tool");
-    console.log(`A: ${result.messages.at(-1)?.content}`);
+    console.log(`A: ${result.messages.at(-1)?.text}`);
     console.log(`   (knowledge base searched: ${used ? "yes" : "no"})`);
   }
 

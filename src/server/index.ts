@@ -60,7 +60,7 @@ function parseBody<T>(raw: unknown): T {
 function lastMessageContent(messages: BaseMessage[]): string | undefined {
   const last = messages.at(-1);
   if (!last) return undefined;
-  return typeof last.content === "string" ? last.content : JSON.stringify(last.content);
+  return last.text;
 }
 
 // -- Server --
@@ -170,7 +170,7 @@ export async function startServer(): Promise<void> {
         const node = metadata?.langgraph_node ?? "unknown";
 
         if (chunk instanceof AIMessageChunk) {
-          send({ type: "token", content: chunk.content, node });
+          send({ type: "token", content: chunk.text, node });
         } else if (chunk && typeof chunk === "object" && "content" in chunk) {
           send({ type: "message", content: (chunk as BaseMessage).content, node });
         }

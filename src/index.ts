@@ -13,7 +13,7 @@ import { createSupportApp } from "./apps/support";
 function lastContent(messages: BaseMessage[]): string {
   const last = messages.at(-1);
   if (!last) return "(no response)";
-  return typeof last.content === "string" ? last.content : JSON.stringify(last.content);
+  return last.text;
 }
 
 interface TaskState {

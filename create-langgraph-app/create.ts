@@ -67,10 +67,10 @@ async function choose(
 // ── Templates ────────────────────────────────────────────────────────────────
 
 const PROVIDERS: Record<string, { envKey: string; defaultModel: string }> = {
-  openai: { envKey: "OPENAI_API_KEY", defaultModel: "gpt-4o-mini" },
-  anthropic: { envKey: "ANTHROPIC_API_KEY", defaultModel: "claude-sonnet-4-20250514" },
-  google: { envKey: "GOOGLE_API_KEY", defaultModel: "gemini-2.0-flash" },
-  groq: { envKey: "GROQ_API_KEY", defaultModel: "llama-3.3-70b-versatile" },
+  openai: { envKey: "OPENAI_API_KEY", defaultModel: "gpt-6-luna" },
+  anthropic: { envKey: "ANTHROPIC_API_KEY", defaultModel: "claude-sonnet-5-5" },
+  google: { envKey: "GOOGLE_API_KEY", defaultModel: "gemini-3.6-flash" },
+  groq: { envKey: "GROQ_API_KEY", defaultModel: "openai/gpt-oss-120b" },
   ollama: { envKey: "", defaultModel: "llama3.2" },
   deepseek: { envKey: "DEEPSEEK_API_KEY", defaultModel: "deepseek-v4-flash" },
 };
@@ -115,7 +115,9 @@ export function generateEnv(config: Config): string {
     ``,
     `# Model (optional — defaults to ${prov.defaultModel})`,
     `# LLM_MODEL=${prov.defaultModel}`,
-    `LLM_TEMPERATURE=0`,
+    config.provider === "openai" || config.provider === "anthropic"
+      ? `# LLM_TEMPERATURE=  (current ${config.provider} models only accept the default)`
+      : `# LLM_TEMPERATURE=0`,
     ``,
     ...embeddingsEnvLines(config),
     ...(config.provider === "deepseek"
@@ -124,7 +126,7 @@ export function generateEnv(config: Config): string {
     `PORT=3000`,
     ``,
     `# LangSmith tracing (optional)`,
-    `# LANGCHAIN_TRACING_V2=true`,
+    `# LANGSMITH_TRACING=true`,
     `# LANGSMITH_API_KEY=`,
     `# LANGSMITH_PROJECT=${config.name}`,
   );
@@ -133,17 +135,17 @@ export function generateEnv(config: Config): string {
 
 export function generatePackageJson(config: Config): string {
   const deps: Record<string, string> = {
-    "@langchain/core": "^1.2.3",
-    "@langchain/langgraph": "^1.4.8",
-    "@langchain/mcp-adapters": "^1.1.3",
+    "@langchain/core": "^1.2.18",
+    "@langchain/langgraph": "^1.5.1",
+    "@langchain/mcp-adapters": "^1.1.4",
     dotenv: "^17.4.2",
-    fastify: "^5.10.0",
-    langchain: "^1.5.3",
-    zod: "^4.4.3",
+    fastify: "^5.12.7",
+    langchain: "^1.5.18",
+    zod: "^4.6.7",
   };
 
   if (config.patterns.includes("rag")) {
-    deps["@langchain/textsplitters"] = "^1.0.1";
+    deps["@langchain/textsplitters"] = "^1.0.2";
   }
 
   // Provider package
@@ -179,10 +181,10 @@ export function generatePackageJson(config: Config): string {
       Object.entries(deps).sort(([a], [b]) => a.localeCompare(b))
     ),
     devDependencies: {
-      "@types/node": "^25.9.1",
-      tsx: "^4.22.4",
+      "@types/node": "^25.9.9",
+      tsx: "^4.23.15",
       typescript: "^6.0.3",
-      vitest: "^4.1.8",
+      vitest: "^4.1.12",
     },
   };
 
@@ -242,7 +244,9 @@ if (requiredKey && !process.env[requiredKey]) {
 }
 
 export const LLM_MODEL = process.env.LLM_MODEL || undefined;
-export const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? 0);
+export const LLM_TEMPERATURE = process.env.LLM_TEMPERATURE
+  ? Number(process.env.LLM_TEMPERATURE)
+  : undefined;
 // Uses || rather than ?? so an empty DEEPSEEK_THINKING= in .env falls back
 // to "disabled" instead of sending an invalid thinking type to the API.
 export const DEEPSEEK_THINKING = process.env.DEEPSEEK_THINKING || "disabled";
@@ -254,14 +258,14 @@ export const PORT = Number(process.env.PORT ?? 3000);
 // provider that was selected, so the scaffold depends on a single LLM SDK.
 const PROVIDER_LLM: Record<
   string,
-  { pkg: string; className: string; modelArg: "model" | "modelName"; defaultModel: string; extraArgs?: string }
+  { pkg: string; className: string; defaultModel: string; extraArgs?: string }
 > = {
-  openai: { pkg: "@langchain/openai", className: "ChatOpenAI", modelArg: "modelName", defaultModel: "gpt-4o-mini" },
-  anthropic: { pkg: "@langchain/anthropic", className: "ChatAnthropic", modelArg: "modelName", defaultModel: "claude-sonnet-4-20250514" },
-  google: { pkg: "@langchain/google-genai", className: "ChatGoogleGenerativeAI", modelArg: "model", defaultModel: "gemini-2.0-flash" },
-  groq: { pkg: "@langchain/groq", className: "ChatGroq", modelArg: "model", defaultModel: "llama-3.3-70b-versatile" },
-  ollama: { pkg: "@langchain/ollama", className: "ChatOllama", modelArg: "model", defaultModel: "llama3.2" },
-  deepseek: { pkg: "@langchain/deepseek", className: "ChatDeepSeek", modelArg: "model", defaultModel: "deepseek-v4-flash", extraArgs: 'modelKwargs: { thinking: { type: DEEPSEEK_THINKING } }' },
+  openai: { pkg: "@langchain/openai", className: "ChatOpenAI", defaultModel: "gpt-6-luna", extraArgs: "useResponsesApi: true" },
+  anthropic: { pkg: "@langchain/anthropic", className: "ChatAnthropic", defaultModel: "claude-sonnet-5-5" },
+  google: { pkg: "@langchain/google-genai", className: "ChatGoogleGenerativeAI", defaultModel: "gemini-3.6-flash" },
+  groq: { pkg: "@langchain/groq", className: "ChatGroq", defaultModel: "openai/gpt-oss-120b" },
+  ollama: { pkg: "@langchain/ollama", className: "ChatOllama", defaultModel: "llama3.2" },
+  deepseek: { pkg: "@langchain/deepseek", className: "ChatDeepSeek", defaultModel: "deepseek-v4-flash", extraArgs: 'modelKwargs: { thinking: { type: DEEPSEEK_THINKING } }' },
 };
 
 // Only these three have a native embeddings API. Anthropic, Groq and DeepSeek
@@ -271,7 +275,7 @@ const PROVIDER_EMBEDDINGS: Record<
   { pkg: string; className: string; defaultModel: string; envKey: string }
 > = {
   openai: { pkg: "@langchain/openai", className: "OpenAIEmbeddings", defaultModel: "text-embedding-3-small", envKey: "OPENAI_API_KEY" },
-  google: { pkg: "@langchain/google-genai", className: "GoogleGenerativeAIEmbeddings", defaultModel: "text-embedding-004", envKey: "GOOGLE_API_KEY" },
+  google: { pkg: "@langchain/google-genai", className: "GoogleGenerativeAIEmbeddings", defaultModel: "gemini-embedding-2", envKey: "GOOGLE_API_KEY" },
   ollama: { pkg: "@langchain/ollama", className: "OllamaEmbeddings", defaultModel: "nomic-embed-text", envKey: "" },
 };
 
@@ -346,10 +350,14 @@ export interface LlmOptions {
 
 async function createLlm(opts: LlmOptions = {}): Promise<BaseChatModel> {
   const model = opts.model ?? LLM_MODEL ?? DEFAULT_MODEL;
-  const temperature = opts.temperature ?? LLM_TEMPERATURE;
+${
+    config.provider === "openai" || config.provider === "anthropic"
+      ? "  // Current models reject non-default temperatures; only send one if set.\n  const temperature = opts.temperature ?? LLM_TEMPERATURE;"
+      : "  const temperature = opts.temperature ?? LLM_TEMPERATURE ?? 0;"
+  }
 
   const { ${p.className} } = await import("${p.pkg}");
-  return new ${p.className}({ ${p.modelArg}: model, temperature${p.extraArgs ? `, ${p.extraArgs}` : ""} });
+  return new ${p.className}({ model, temperature${p.extraArgs ? `, ${p.extraArgs}` : ""} });
 }
 
 let _default: Promise<BaseChatModel> | undefined;
@@ -450,9 +458,7 @@ export function subagentTool({ name, description, agent }: SubagentSpec) {
       });
       const last = result.messages.at(-1);
       if (!last) return "(no response)";
-      return typeof last.content === "string"
-        ? last.content
-        : JSON.stringify(last.content);
+      return last.text;
     },
     {
       name,
@@ -635,7 +641,7 @@ ${entries}${ragEntry}
     return reply.send({
       messages: result.messages,
       structuredResponse: (result as Record<string, unknown>).structuredResponse ?? null,
-      lastMessage: typeof last?.content === "string" ? last.content : JSON.stringify(last?.content),
+      lastMessage: last?.text,
       // Non-empty = paused for approval; answer via POST /:app/resume.
       interrupts: pendingInterrupts(await app.getState(config)),
     });
@@ -665,7 +671,7 @@ ${entries}${ragEntry}
       const stream = await app.stream({ messages }, { configurable: { thread_id }, streamMode: "messages", signal: controller.signal });
       for await (const [chunk, metadata] of stream) {
         if (chunk instanceof AIMessageChunk) {
-          send({ type: "token", content: chunk.content, node: metadata?.langgraph_node ?? "unknown" });
+          send({ type: "token", content: chunk.text, node: metadata?.langgraph_node ?? "unknown" });
         }
       }
       const interrupts = pendingInterrupts(await app.getState({ configurable: { thread_id } }));
@@ -696,7 +702,7 @@ ${entries}${ragEntry}
     const last = result.messages.at(-1);
     return reply.send({
       messages: result.messages,
-      lastMessage: typeof last?.content === "string" ? last.content : JSON.stringify(last?.content),
+      lastMessage: last?.text,
       // A resumed run can pause again (e.g. a second approval).
       interrupts: pendingInterrupts(await app.getState(config)),
     });
@@ -888,7 +894,7 @@ export async function createSupervisorApp() {
     { messages: [{ role: "user", content: "What is 10 + 15?" }] },
     { configurable: { thread_id: "demo" } }
   );
-  console.log("Result:", sup.messages.at(-1)?.content);`);
+  console.log("Result:", sup.messages.at(-1)?.text);`);
   }
 
   if (config.patterns.includes("swarm")) {
@@ -1074,7 +1080,7 @@ export async function createSwarmApp() {
     { messages: [{ role: "user", content: "add 5 and 7, then talk to bob and multiply by 3" }] },
     { configurable: { thread_id: "swarm-demo" } }
   );
-  console.log("Result:", swarm.messages.at(-1)?.content);`);
+  console.log("Result:", swarm.messages.at(-1)?.text);`);
   }
 
   if (config.patterns.includes("hitl")) {
@@ -1131,7 +1137,7 @@ export async function createInterruptApp() {
   if ((state.next ?? []).length > 0) {
     console.log("Graph paused — approving...");
     const resumed = await interruptApp.invoke(new Command({ resume: "yes" }), hitlCfg);
-    console.log("Result:", resumed.messages.at(-1)?.content);
+    console.log("Result:", resumed.messages.at(-1)?.text);
   }`);
   }
 
@@ -1173,7 +1179,7 @@ export async function createAnalystApp() {
     { configurable: { thread_id: "analyst-demo" } }
   );
   const structured = (analysis as Record<string, unknown>).structuredResponse;
-  console.log("Result:", JSON.stringify(structured ?? analysis.messages.at(-1)?.content));`);
+  console.log("Result:", JSON.stringify(structured ?? analysis.messages.at(-1)?.text));`);
   }
 
   if (config.patterns.includes("rag")) {
@@ -1312,7 +1318,7 @@ export async function createRagApp(vectorStore?: InMemoryVectorStore) {
     { messages: [{ role: "user", content: "What is the supervisor pattern?" }] },
     { configurable: { thread_id: "rag-demo" } }
   );
-  console.log("Result:", rag.messages.at(-1)?.content);`);
+  console.log("Result:", rag.messages.at(-1)?.text);`);
   }
 
   // HTTP server — routes only the apps that were generated
@@ -1350,10 +1356,10 @@ async function main() {
     const name = await ask(rl, "Project name", "my-langgraph-app");
 
     const [provider] = await choose(rl, "LLM provider?", [
-      { value: "openai", label: "OpenAI (gpt-4o-mini)" },
+      { value: "openai", label: "OpenAI (gpt-6-luna)" },
       { value: "anthropic", label: "Anthropic (Claude Sonnet)" },
-      { value: "google", label: "Google (Gemini 2.0 Flash)" },
-      { value: "groq", label: "Groq (Llama 3.3 70B)" },
+      { value: "google", label: "Google (Gemini 3.6 Flash)" },
+      { value: "groq", label: "Groq (gpt-oss-120b)" },
       { value: "deepseek", label: "DeepSeek (deepseek-v4-flash)" },
       { value: "ollama", label: "Ollama (local, no API key)" },
     ]);

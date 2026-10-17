@@ -37,9 +37,7 @@ export function subagentTool({ name, description, agent }: SubagentSpec) {
       });
       const last = result.messages.at(-1);
       if (!last) return "(no response)";
-      return typeof last.content === "string"
-        ? last.content
-        : JSON.stringify(last.content);
+      return last.text;
     },
     {
       name,

@@ -126,10 +126,10 @@ Interactive CLI — pick your provider, choose your patterns, get a project:
   Project name (my-langgraph-app): my-agents
   
   LLM provider?
-    1. OpenAI (gpt-4o-mini)
+    1. OpenAI (gpt-6-luna)
     2. Anthropic (Claude Sonnet)
-    3. Google (Gemini 2.0 Flash)
-    4. Groq (Llama 3.3 70B)
+    3. Google (Gemini 3.6 Flash)
+    4. Groq (gpt-oss-120b)
     5. DeepSeek (deepseek-v4-flash)
     6. Ollama (local, no API key)
 
@@ -160,10 +160,10 @@ Switch providers with one env var. Each has a sensible default model:
 
 | Provider | `LLM_PROVIDER` | Default Model | API Key |
 |---|---|---|---|
-| **OpenAI** | `openai` | gpt-4o-mini | `OPENAI_API_KEY` |
-| **Anthropic** | `anthropic` | claude-sonnet-4-20250514 | `ANTHROPIC_API_KEY` |
-| **Google** | `google` | gemini-2.0-flash | `GOOGLE_API_KEY` |
-| **Groq** | `groq` | llama-3.3-70b-versatile | `GROQ_API_KEY` |
+| **OpenAI** | `openai` | gpt-6-luna | `OPENAI_API_KEY` |
+| **Anthropic** | `anthropic` | claude-sonnet-5-5 | `ANTHROPIC_API_KEY` |
+| **Google** | `google` | gemini-3.6-flash | `GOOGLE_API_KEY` |
+| **Groq** | `groq` | openai/gpt-oss-120b | `GROQ_API_KEY` |
 | **Ollama** | `ollama` | llama3.2 | None (runs locally) |
 | **DeepSeek** | `deepseek` | deepseek-v4-flash | `DEEPSEEK_API_KEY` |
 
@@ -291,7 +291,7 @@ langgraph dev    # Visual graph debugging
 ### LangSmith Tracing
 
 ```env
-LANGCHAIN_TRACING_V2=true
+LANGSMITH_TRACING=true
 LANGSMITH_API_KEY=ls_...
 LANGSMITH_PROJECT=langgraph-starter-kit
 ```
