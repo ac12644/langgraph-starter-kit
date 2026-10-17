@@ -39,12 +39,12 @@ async function main() {
       continue;
     }
 
-    if (typeof chunk.content === "string" && chunk.content) {
+    if (chunk.text) {
       if (thinking) {
         process.stdout.write("\n\n");
         thinking = 0;
       }
-      process.stdout.write(chunk.content);
+      process.stdout.write(chunk.text);
     }
   }
 

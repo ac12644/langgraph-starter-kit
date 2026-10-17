@@ -59,7 +59,9 @@ export const EMBEDDINGS_PROVIDER_RAW = process.env.EMBEDDINGS_PROVIDER?.trim();
 export const EMBEDDINGS_MODEL = process.env.EMBEDDINGS_MODEL || undefined;
 
 export const LLM_MODEL = process.env.LLM_MODEL || undefined;
-export const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE ?? 0);
+export const LLM_TEMPERATURE = process.env.LLM_TEMPERATURE
+  ? Number(process.env.LLM_TEMPERATURE)
+  : undefined;
 // `||` not `??`: an empty DEEPSEEK_THINKING= in .env must fall back to
 // "disabled" rather than sending an invalid thinking type to the API.
 export const DEEPSEEK_THINKING = process.env.DEEPSEEK_THINKING || "disabled";

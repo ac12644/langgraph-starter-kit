@@ -10,7 +10,7 @@ import {
 
 const DEFAULTS: Record<EmbeddingsProvider, string> = {
   openai: "text-embedding-3-small",
-  google: "text-embedding-004",
+  google: "gemini-embedding-2",
   ollama: "nomic-embed-text",
 };
 
