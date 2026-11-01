@@ -145,7 +145,8 @@ export function buildServer(
         const node = metadata?.langgraph_node ?? "unknown";
 
         if (chunk instanceof AIMessageChunk) {
-          send({ type: "token", content: chunk.text, node });
+          // Reasoning chunks have no text; don't emit empty token events.
+          if (chunk.text) send({ type: "token", content: chunk.text, node });
         } else if (chunk && typeof chunk === "object" && "content" in chunk) {
           send({ type: "message", content: (chunk as BaseMessage).content, node });
         }
