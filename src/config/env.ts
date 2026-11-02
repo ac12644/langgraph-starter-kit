@@ -66,5 +66,8 @@ export const LLM_TEMPERATURE = process.env.LLM_TEMPERATURE
 // "disabled" rather than sending an invalid thinking type to the API.
 export const DEEPSEEK_THINKING = process.env.DEEPSEEK_THINKING || "disabled";
 export const PORT = Number(process.env.PORT ?? 3000);
+export const API_KEY = process.env.API_KEY || undefined;
+export const LOG_LEVEL = process.env.LOG_LEVEL || "info";
+export const RUN_TIMEOUT_MS = Number(process.env.RUN_TIMEOUT_MS ?? 120_000);
 export const DATABASE_URL = process.env.DATABASE_URL;
 export const MCP_SERVERS_PATH = process.env.MCP_SERVERS_PATH;
