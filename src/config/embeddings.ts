@@ -69,6 +69,12 @@ function maybeLogImplicitFallback(
   implicitFallbackLogged = true;
 }
 
+// The default (6 retries with backoff) makes an unreachable endpoint take
+// ~100s to fail, and the server indexes RAG docs at startup, so startup hung
+// that long when Ollama was down (#41). Two retries fail in ~4s and still ride
+// out a brief network blip.
+const MAX_RETRIES = 2;
+
 export async function createEmbeddings(modelOverride?: string): Promise<Embeddings> {
   const { provider, explicit } = resolveEmbeddingsProviderAtCall();
 
@@ -79,15 +85,15 @@ export async function createEmbeddings(modelOverride?: string): Promise<Embeddin
   switch (provider) {
     case "google": {
       const { GoogleGenerativeAIEmbeddings } = await import("@langchain/google-genai");
-      return new GoogleGenerativeAIEmbeddings({ model });
+      return new GoogleGenerativeAIEmbeddings({ model, maxRetries: MAX_RETRIES });
     }
     case "ollama": {
       const { OllamaEmbeddings } = await import("@langchain/ollama");
-      return new OllamaEmbeddings({ model });
+      return new OllamaEmbeddings({ model, maxRetries: MAX_RETRIES });
     }
     case "openai": {
       const { OpenAIEmbeddings } = await import("@langchain/openai");
-      return new OpenAIEmbeddings({ model });
+      return new OpenAIEmbeddings({ model, maxRetries: MAX_RETRIES });
     }
   }
 }
