@@ -335,7 +335,9 @@ export async function createEmbeddings(modelOverride?: string): Promise<Embeddin
   }
 
   const model = modelOverride ?? process.env.EMBEDDINGS_MODEL?.trim() ?? DEFAULT_MODEL;
-  return new ${e.className}({ model });
+  // The default 6 retries make an unreachable endpoint take ~100s to fail,
+  // which stalls startup (RAG indexes then). Two retries fail in ~4s.
+  return new ${e.className}({ model, maxRetries: 2 });
 }
 `;
 }

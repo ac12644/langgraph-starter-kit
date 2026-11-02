@@ -21,6 +21,20 @@ describe("embeddings config", () => {
     await expect(createEmbeddings()).rejects.toThrow(/OPENAI_API_KEY/);
   });
 
+  // #41: startup indexes the RAG docs, so with the default 6 retries an
+  // unreachable embeddings endpoint held up startup for ~100s.
+  it("RAG indexing gives up quickly when the embeddings endpoint is down", async () => {
+    vi.stubEnv("LLM_PROVIDER", "ollama");
+    vi.stubEnv("EMBEDDINGS_PROVIDER", "ollama");
+    vi.stubEnv("OLLAMA_BASE_URL", "http://127.0.0.1:1"); // nothing listens here
+
+    const { initRagStore } = await import("../../src/apps/rag");
+
+    const started = Date.now();
+    await expect(initRagStore()).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(10_000);
+  }, 20_000);
+
   it("explicit ollama provider needs no OpenAI key", async () => {
     vi.stubEnv("LLM_PROVIDER", "deepseek");
     vi.stubEnv("DEEPSEEK_API_KEY", "test-deepseek-key");
