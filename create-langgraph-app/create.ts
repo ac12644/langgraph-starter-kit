@@ -671,7 +671,7 @@ ${entries}${ragEntry}
       const stream = await app.stream({ messages }, { configurable: { thread_id }, streamMode: "messages", signal: controller.signal });
       for await (const [chunk, metadata] of stream) {
         if (chunk instanceof AIMessageChunk) {
-          send({ type: "token", content: chunk.text, node: metadata?.langgraph_node ?? "unknown" });
+          if (chunk.text) send({ type: "token", content: chunk.text, node: metadata?.langgraph_node ?? "unknown" });
         }
       }
       const interrupts = pendingInterrupts(await app.getState({ configurable: { thread_id } }));
