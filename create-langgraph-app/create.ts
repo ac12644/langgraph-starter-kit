@@ -1145,8 +1145,9 @@ export async function createInterruptApp() {
     files.push({
       path: "src/apps/analyst.ts",
       content: `import { z } from "zod";
-import { toolStrategy } from "langchain";
+import { toolStrategy, providerStrategy } from "langchain";
 import { MemorySaver } from "@langchain/langgraph";
+import { LLM_PROVIDER, type LlmProvider } from "../config/env";
 import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
 
@@ -1156,16 +1157,25 @@ const SummarySchema = z.object({
   sentiment: z.enum(["positive", "negative", "neutral"]),
 });
 
+// toolStrategy forces a tool call, which Groq's gpt-oss models don't
+// reliably make (Groq rejects the plain-text reply with a 400). Use the
+// provider's native structured output there; everything else keeps
+// toolStrategy, which works across providers.
+export function analystResponseFormat(provider: LlmProvider) {
+  return provider === "groq"
+    ? providerStrategy(SummarySchema)
+    : toolStrategy(SummarySchema);
+}
+
 export async function createAnalystApp() {
   const llm = await getLlm();
 
   // The structured result is returned on the structuredResponse key of the
-  // final state. toolStrategy works with every provider; models with native
-  // structured output support could use providerStrategy instead.
+  // final state.
   return makeAgent({
     name: "analyst", llm, tools: [],
     system: "Analyze text and produce structured summaries.",
-    responseFormat: toolStrategy(SummarySchema),
+    responseFormat: analystResponseFormat(LLM_PROVIDER),
     checkpointer: new MemorySaver(),
   });
 }
