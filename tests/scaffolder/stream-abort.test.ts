@@ -28,10 +28,10 @@ describe("generated server /stream abort handling", () => {
     );
   });
 
-  it("passes the abort signal to app.stream()", () => {
-    expect(generatedServer()).toMatch(
-      /app\.stream\([^)]*streamMode: "messages", signal: controller\.signal/
-    );
+  it("passes the abort signal (combined with the run timeout) to app.stream()", () => {
+    const server = generatedServer();
+    expect(server).toContain("AbortSignal.any([controller.signal, timeout])");
+    expect(server).toMatch(/app\.stream\([^)]*streamMode: "messages", signal \}/);
   });
 
   it("skips send() once the client is gone", () => {
@@ -42,7 +42,7 @@ describe("generated server /stream abort handling", () => {
 
   it("does not report an abort as an error event", () => {
     expect(generatedServer()).toMatch(
-      /catch \(err\) \{\s*if \(controller\.signal\.aborted\) return;\s*send\(\{ type: "error"/
+      /catch \(err\) \{\s*if \(controller\.signal\.aborted\) return;/
     );
   });
 });

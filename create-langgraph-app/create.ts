@@ -124,6 +124,11 @@ export function generateEnv(config: Config): string {
       ? [`# DeepSeek reasoning mode (optional — "disabled" | "enabled")`, `# DEEPSEEK_THINKING=disabled`, ``]
       : []),
     `PORT=3000`,
+    `# Require "Authorization: Bearer <key>" on every route except /health (recommended in production)`,
+    `# API_KEY=`,
+    `# LOG_LEVEL=info`,
+    `# Abort agent runs that take longer than this (0 = no limit)`,
+    `# RUN_TIMEOUT_MS=120000`,
     ``,
     `# LangSmith tracing (optional)`,
     `# LANGSMITH_TRACING=true`,
@@ -251,6 +256,9 @@ export const LLM_TEMPERATURE = process.env.LLM_TEMPERATURE
 // to "disabled" instead of sending an invalid thinking type to the API.
 export const DEEPSEEK_THINKING = process.env.DEEPSEEK_THINKING || "disabled";
 export const PORT = Number(process.env.PORT ?? 3000);
+export const API_KEY = process.env.API_KEY || undefined;
+export const LOG_LEVEL = process.env.LOG_LEVEL || "info";
+export const RUN_TIMEOUT_MS = Number(process.env.RUN_TIMEOUT_MS ?? 120_000);
 `;
 }
 
@@ -544,10 +552,11 @@ function generateServer(config: Config): string {
     : "";
 
   return `import "./config/env";
+import { timingSafeEqual } from "node:crypto";
 import { fastify, type FastifyError, type FastifyReply, type FastifyRequest } from "fastify";
 import { Command } from "@langchain/langgraph";
 import { AIMessageChunk, type BaseMessage } from "@langchain/core/messages";
-import { PORT } from "./config/env";
+import { API_KEY, LOG_LEVEL, PORT, RUN_TIMEOUT_MS } from "./config/env";
 ${imports}
 
 // The apps are a mix of agents and graphs whose generic types don't unify;
@@ -603,12 +612,41 @@ function validateThreadId(raw: unknown): string {
   return raw;
 }
 
-const server = fastify({ logger: false });
+const server = fastify({ logger: { level: LOG_LEVEL } });
 
-server.setErrorHandler(async (error: FastifyError, _req: FastifyRequest, reply: FastifyReply) => {
+server.setErrorHandler(async (error: FastifyError, req: FastifyRequest, reply: FastifyReply) => {
   const status = error.statusCode ?? 500;
+  if (status >= 500) req.log.error(error);
   return reply.status(status).send({ error: error.message });
 });
+
+// With API_KEY set, every route except /health needs "Authorization: Bearer <key>".
+if (API_KEY) {
+  const expected = Buffer.from(\`Bearer \${API_KEY}\`);
+  server.addHook("onRequest", async (req) => {
+    if (req.routeOptions.url === "/health") return;
+    const given = Buffer.from(req.headers.authorization ?? "");
+    if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
+      throw httpError(401, "Missing or invalid API key");
+    }
+  });
+} else if (process.env.NODE_ENV === "production") {
+  console.warn("API_KEY is not set: anyone who can reach this server can run the agents.");
+}
+
+// RUN_TIMEOUT_MS=0 turns the run timeout off.
+const timeoutSignal = () => (RUN_TIMEOUT_MS ? AbortSignal.timeout(RUN_TIMEOUT_MS) : undefined);
+const timedOut = () => httpError(504, \`Run timed out after \${RUN_TIMEOUT_MS}ms\`);
+
+async function invokeWithTimeout(app: AppGraph, input: unknown, config: Record<string, unknown>) {
+  const signal = timeoutSignal();
+  try {
+    return await app.invoke(input, { ...config, signal });
+  } catch (err) {
+    if (signal?.aborted) throw timedOut();
+    throw err;
+  }
+}
 
 async function start() {
 ${ragInit}  const apps: Record<string, AppGraph> = {
@@ -636,7 +674,7 @@ ${entries}${ragEntry}
     const thread_id = validateThreadId(body.thread_id);
 
     const config = { configurable: { thread_id } };
-    const result = await app.invoke({ messages }, config);
+    const result = await invokeWithTimeout(app, { messages }, config);
     const last = result.messages.at(-1);
     return reply.send({
       messages: result.messages,
@@ -662,13 +700,15 @@ ${entries}${ragEntry}
     reply.raw.on("close", () => {
       if (!reply.raw.writableFinished) controller.abort();
     });
+    const timeout = timeoutSignal();
+    const signal = timeout ? AbortSignal.any([controller.signal, timeout]) : controller.signal;
     const send = (e: unknown) => {
       if (controller.signal.aborted) return;
       reply.raw.write(\`data: \${JSON.stringify(e)}\\n\\n\`);
     };
 
     try {
-      const stream = await app.stream({ messages }, { configurable: { thread_id }, streamMode: "messages", signal: controller.signal });
+      const stream = await app.stream({ messages }, { configurable: { thread_id }, streamMode: "messages", signal });
       for await (const [chunk, metadata] of stream) {
         if (chunk instanceof AIMessageChunk) {
           if (chunk.text) send({ type: "token", content: chunk.text, node: metadata?.langgraph_node ?? "unknown" });
@@ -679,6 +719,8 @@ ${entries}${ragEntry}
       send({ type: "done" });
     } catch (err) {
       if (controller.signal.aborted) return;
+      if (timeout?.aborted) return send({ type: "error", content: timedOut().message });
+      req.log.error(err);
       send({ type: "error", content: err instanceof Error ? err.message : "Stream failed" });
     } finally {
       reply.raw.end();
@@ -698,7 +740,7 @@ ${entries}${ragEntry}
     }
 
     const config = { configurable: { thread_id } };
-    const result = await app.invoke(new Command({ resume: body.decision }), config);
+    const result = await invokeWithTimeout(app, new Command({ resume: body.decision }), config);
     const last = result.messages.at(-1);
     return reply.send({
       messages: result.messages,
@@ -713,7 +755,7 @@ ${entries}${ragEntry}
     return reply.send({ values: state.values, next: state.next ?? [], tasks: state.tasks ?? [] });
   });
 
-  server.get("/health", async () => ({ status: "ok", apps: Object.keys(apps) }));
+  server.get("/health", { logLevel: "warn" }, async () => ({ status: "ok", apps: Object.keys(apps) }));
 
   // Container runtimes send SIGTERM on stop — drain instead of dying mid-request.
   let shuttingDown = false;

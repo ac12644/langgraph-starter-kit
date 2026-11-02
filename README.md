@@ -309,6 +309,8 @@ LANGSMITH_PROJECT=langgraph-starter-kit
 | `/:app/threads/:id/history` | GET | Full state history; 404 if the thread doesn't exist |
 | `/health` | GET | Health check |
 
+When `API_KEY` is set, send `-H "Authorization: Bearer $API_KEY"` with every request except `/health`.
+
 **Apps:** `swarm` `supervisor` `interrupt` `analyst` `researcher` `rag` `support`
 
 ## Examples
@@ -375,6 +377,14 @@ docker run -p 3000:3000 --env-file .env langgraph-starter
 | **Railway** | [Deploy](https://railway.com/new) with this repo URL |
 | **Render** | Connect repo — uses `render.yaml` |
 | **Docker** | `docker compose up` anywhere |
+
+Before exposing the server, set these in `.env`:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `API_KEY` | unset | Every route except `/health` requires `Authorization: Bearer <key>`. Without it, anyone who can reach the server can run your agents on your API credits. |
+| `LOG_LEVEL` | `info` | Request and error logs (JSON, via Fastify's logger). |
+| `RUN_TIMEOUT_MS` | `120000` | Runs longer than this are aborted: `/invoke` and `/resume` return 504, `/stream` sends an `error` event. `0` disables it. |
 
 ## Adding Your Own Agent
 

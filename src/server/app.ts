@@ -1,4 +1,5 @@
-import { fastify, type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import { timingSafeEqual } from "node:crypto";
+import { fastify, type FastifyError, type FastifyServerOptions, type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { Command } from "@langchain/langgraph";
 import { AIMessageChunk, BaseMessage } from "@langchain/core/messages";
 import { httpError, validateMessages, validateThreadId } from "./validation";
@@ -50,6 +51,12 @@ export interface BuildServerOptions {
   mcpToolsLoaded?: number;
   /** Runs when the server closes (best-effort). */
   onClose?: () => Promise<void>;
+  /** When set, every route except /health needs `Authorization: Bearer <apiKey>`. */
+  apiKey?: string;
+  /** Fastify logger options, e.g. `{ level: "info" }`. Logging is off when unset. */
+  logger?: FastifyServerOptions["logger"];
+  /** Abort runs that take longer than this. No limit when unset or 0. */
+  runTimeoutMs?: number;
 }
 
 // -- Helpers --
@@ -71,15 +78,42 @@ export function buildServer(
   apps: Record<string, AppGraph>,
   options: BuildServerOptions = {}
 ): FastifyInstance {
-  const server = fastify({ logger: false });
+  const { apiKey, logger = false, runTimeoutMs } = options;
+  const server = fastify({ logger });
 
-  server.setErrorHandler(async (error: FastifyError, _req: FastifyRequest, reply: FastifyReply) => {
+  server.setErrorHandler(async (error: FastifyError, req: FastifyRequest, reply: FastifyReply) => {
     const status = error.statusCode ?? 500;
+    if (status >= 500) req.log.error(error);
     return reply.status(status).send({
       error: error.message,
       ...(status === 500 ? { hint: "Check server logs for details" } : {}),
     });
   });
+
+  if (apiKey) {
+    const expected = Buffer.from(`Bearer ${apiKey}`);
+    server.addHook("onRequest", async (req) => {
+      if (req.routeOptions.url === "/health") return;
+      const given = Buffer.from(req.headers.authorization ?? "");
+      if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
+        throw httpError(401, "Missing or invalid API key");
+      }
+    });
+  }
+
+  const timeoutSignal = () => (runTimeoutMs ? AbortSignal.timeout(runTimeoutMs) : undefined);
+  const timedOut = () => httpError(504, `Run timed out after ${runTimeoutMs}ms`);
+
+  /** Runs one invoke, turning a timeout abort into a 504. */
+  async function invokeWithTimeout(app: AppGraph, input: unknown, config: Record<string, unknown>) {
+    const signal = timeoutSignal();
+    try {
+      return await app.invoke(input, { ...config, signal });
+    } catch (err) {
+      if (signal?.aborted) throw timedOut();
+      throw err;
+    }
+  }
 
   function getApp(name: string) {
     if (!(name in apps)) {
@@ -97,7 +131,7 @@ export function buildServer(
     const thread_id = validateThreadId(body.thread_id);
 
     const config = { configurable: { thread_id } };
-    const result = await app.invoke({ messages }, config);
+    const result = await invokeWithTimeout(app, { messages }, config);
 
     return reply.send({
       messages: result.messages,
@@ -125,6 +159,8 @@ export function buildServer(
     reply.raw.on("close", () => {
       if (!reply.raw.writableFinished) controller.abort();
     });
+    const timeout = timeoutSignal();
+    const signal = timeout ? AbortSignal.any([controller.signal, timeout]) : controller.signal;
 
     const send = (event: StreamEvent) => {
       if (controller.signal.aborted) return;
@@ -137,7 +173,7 @@ export function buildServer(
         {
           configurable: { thread_id },
           streamMode: "messages",
-          signal: controller.signal,
+          signal,
         }
       );
 
@@ -162,6 +198,11 @@ export function buildServer(
     } catch (err) {
       // An abort means the client left; there's nobody to report an error to.
       if (controller.signal.aborted) return;
+      if (timeout?.aborted) {
+        send({ type: "error", content: timedOut().message });
+        return;
+      }
+      req.log.error(err);
       const msg = err instanceof Error ? err.message : "Stream failed";
       send({ type: "error", content: msg });
     } finally {
@@ -188,7 +229,7 @@ export function buildServer(
     }
 
     const config = { configurable: { thread_id } };
-    const result = await app.invoke(new Command({ resume: decision }), config);
+    const result = await invokeWithTimeout(app, new Command({ resume: decision }), config);
 
     return reply.send({
       messages: result.messages,
@@ -233,7 +274,8 @@ export function buildServer(
     }
   );
 
-  server.get("/health", async () => ({
+  // Health checks hit this every few seconds; keep them out of the info logs.
+  server.get("/health", { logLevel: "warn" }, async () => ({
     status: "ok",
     apps: Object.keys(apps),
     mcpToolsLoaded: options.mcpToolsLoaded ?? 0,

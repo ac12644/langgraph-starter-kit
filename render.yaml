@@ -10,3 +10,5 @@ services:
         sync: false
       - key: PORT
         value: "3000"
+      - key: API_KEY
+        generateValue: true

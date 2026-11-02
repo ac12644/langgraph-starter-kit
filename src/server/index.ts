@@ -1,4 +1,4 @@
-import { PORT } from "../config/env";
+import { API_KEY, LOG_LEVEL, PORT, RUN_TIMEOUT_MS } from "../config/env";
 import { createSwarmApp } from "../apps/swarm";
 import { createSupervisorApp } from "../apps/supervisor";
 import { createInterruptApp } from "../apps/interrupt";
@@ -43,7 +43,14 @@ export async function startServer(): Promise<void> {
     onClose: async () => {
       if (mcpClient) await mcpClient.close();
     },
+    apiKey: API_KEY,
+    logger: { level: LOG_LEVEL },
+    runTimeoutMs: RUN_TIMEOUT_MS,
   });
+
+  if (!API_KEY && process.env.NODE_ENV === "production") {
+    console.warn("API_KEY is not set: anyone who can reach this server can run the agents.");
+  }
 
   // -- Graceful shutdown --
 
