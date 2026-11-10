@@ -3,7 +3,7 @@ import { fastify, type FastifyError, type FastifyServerOptions, type FastifyInst
 import { Command } from "@langchain/langgraph";
 import { AIMessageChunk, BaseMessage } from "@langchain/core/messages";
 import { httpError, validateMessages, validateThreadId } from "./validation";
-import { assertDecisionAllowed, getThread, pendingInterrupts, type ThreadState } from "./threads";
+import { getThread, pendingInterrupts, resumeValue, type ThreadState } from "./threads";
 
 // This module deliberately imports nothing from config/env, so tests can build
 // the server without API keys. index.ts owns startup (MCP, listen, shutdown).
@@ -18,12 +18,14 @@ interface InvokeBody {
 interface ResumeBody {
   thread_id?: unknown;
   decision?: unknown;
+  decisions?: unknown;
 }
 
 interface StreamEvent {
   type: "token" | "message" | "interrupt" | "done" | "error";
   content?: string | unknown;
   node?: string;
+  thread_id?: string;
 }
 
 /**
@@ -45,6 +47,25 @@ export interface AppGraph {
 }
 
 export const asApp = (graph: unknown) => graph as AppGraph;
+
+/**
+ * Prefixes thread ids with the app name. The apps share one checkpointer
+ * (one Postgres database when DATABASE_URL is set), so without this
+ * `/support` and `/swarm` on the same thread_id would read and write the same
+ * conversation.
+ */
+function scopeThreads(name: string, app: AppGraph): AppGraph {
+  const scope = (config: unknown) => {
+    const c = (config ?? {}) as { configurable?: Record<string, unknown> };
+    return { ...c, configurable: { ...c.configurable, thread_id: `${name}:${c.configurable?.thread_id}` } };
+  };
+  return {
+    invoke: (input, config) => app.invoke(input, scope(config)),
+    stream: (input, config) => app.stream(input, scope(config)),
+    getState: (config) => app.getState(scope(config)),
+    getStateHistory: (config) => app.getStateHistory(scope(config)),
+  };
+}
 
 export interface BuildServerOptions {
   /** Shown on /health. */
@@ -115,11 +136,14 @@ export function buildServer(
     }
   }
 
+  const scoped = new Map(Object.entries(apps).map(([name, app]) => [name, scopeThreads(name, app)]));
+
   function getApp(name: string) {
-    if (!(name in apps)) {
+    const app = scoped.get(name);
+    if (!app) {
       throw httpError(404, `Unknown app: "${name}". Available: ${Object.keys(apps).join(", ")}`);
     }
-    return apps[name];
+    return app;
   }
 
   // -- Routes --
@@ -134,6 +158,7 @@ export function buildServer(
     const result = await invokeWithTimeout(app, { messages }, config);
 
     return reply.send({
+      thread_id,
       messages: result.messages,
       structuredResponse: (result as Record<string, unknown>).structuredResponse ?? null,
       lastMessage: lastMessageContent(result.messages),
@@ -192,9 +217,9 @@ export function buildServer(
         await app.getState({ configurable: { thread_id } })
       );
       if (interrupts.length > 0) {
-        send({ type: "interrupt", content: interrupts });
+        send({ type: "interrupt", content: interrupts, thread_id });
       }
-      send({ type: "done" });
+      send({ type: "done", thread_id });
     } catch (err) {
       // An abort means the client left; there's nobody to report an error to.
       if (controller.signal.aborted) return;
@@ -213,13 +238,11 @@ export function buildServer(
   server.post<{ Params: { app: string } }>("/:app/resume", async (req, reply) => {
     const app = getApp(req.params.app);
     const body = parseBody<ResumeBody>(req.body);
-    const thread_id = validateThreadId(body.thread_id);
-    const { decision } = body;
-    // The value is checked against the interrupt's responseSchema below; a
-    // missing one never gets that far: LangGraph rejects an empty Command.
-    if (decision === undefined) {
-      throw httpError(400, '"decision" is required');
+    // No default here: a generated id would never match a paused thread.
+    if (body.thread_id === undefined) {
+      throw httpError(400, '"thread_id" is required');
     }
+    const thread_id = validateThreadId(body.thread_id);
 
     // Without this check a Command sent to a thread that isn't paused is a
     // silent no-op that still returns 200 — an approval UI would report
@@ -228,12 +251,13 @@ export function buildServer(
     if (pendingInterrupts(state).length === 0) {
       throw httpError(409, `Thread "${thread_id}" is not waiting for a decision`);
     }
-    assertDecisionAllowed(state, decision);
+    const resume = resumeValue(state, body);
 
     const config = { configurable: { thread_id } };
-    const result = await invokeWithTimeout(app, new Command({ resume: decision }), config);
+    const result = await invokeWithTimeout(app, new Command({ resume }), config);
 
     return reply.send({
+      thread_id,
       messages: result.messages,
       lastMessage: lastMessageContent(result.messages),
       // A resumed run can pause again (e.g. a second approval).

@@ -220,8 +220,10 @@ await app.invoke(new Command({ resume: "yes" }), { configurable: { thread_id } }
 ```
 
 Over HTTP this is `POST /:app/invoke` → `POST /:app/resume` (see the README's
-HITL section). Both return an `interrupts` array — non-empty means the run is
-paused and waiting on those payloads, so clients don't need to poll the thread. Interrupts propagate through arbitrarily nested agent layers —
+HITL section). Both return an `interrupts` array of `{ id, value }` — non-empty means the run is
+paused and waiting on those payloads, so clients don't need to poll the thread.
+With several pending, resume each by id: `new Command({ resume: { [id]: "yes" } })`,
+or `"decisions"` over HTTP. Interrupts propagate through arbitrarily nested agent layers —
 the `support` app raises them from tools two levels deep.
 
 ## Middleware

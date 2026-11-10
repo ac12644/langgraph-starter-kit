@@ -81,8 +81,10 @@ describe("validateMessages", () => {
 });
 
 describe("validateThreadId", () => {
-  it("defaults to \"default\" when omitted", () => {
-    expect(validateThreadId(undefined)).toBe("default");
+  it("generates a fresh id when omitted", () => {
+    const a = validateThreadId(undefined);
+    expect(a).toMatch(/^[0-9a-f-]{36}$/);
+    expect(validateThreadId(undefined)).not.toBe(a);
   });
 
   it("passes a string id through", () => {

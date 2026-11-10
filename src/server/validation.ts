@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 /**
  * Request validation helpers, kept in their own module (free of any
  * `config/env` import) so they can be unit-tested without API keys and
@@ -45,12 +47,13 @@ export function validateMessages(raw: unknown): { role: string; content: string 
 }
 
 /**
- * Validates `thread_id`, defaulting to "default" when it is omitted. A
- * non-string value otherwise reaches the checkpointer and fails as a 500
- * with LangGraph internals in the message.
+ * Validates `thread_id`. When it is omitted a new random one is used (and
+ * returned in the response), so callers who don't pass one never share a
+ * conversation. A non-string value otherwise reaches the checkpointer and
+ * fails as a 500 with LangGraph internals in the message.
  */
 export function validateThreadId(raw: unknown): string {
-  if (raw === undefined) return "default";
+  if (raw === undefined) return randomUUID();
   if (typeof raw !== "string" || raw.trim() === "") {
     throw httpError(400, '"thread_id" must be a non-empty string');
   }
