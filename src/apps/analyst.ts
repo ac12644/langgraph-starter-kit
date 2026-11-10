@@ -11,12 +11,13 @@ export const SummarySchema = z.object({
   sentiment: z.enum(["positive", "negative", "neutral"]).describe("Overall sentiment"),
 });
 
-// toolStrategy forces a tool call, which Groq's gpt-oss models don't
-// reliably make (Groq rejects the plain-text reply with a 400). Use the
-// provider's native structured output there; everything else keeps
-// toolStrategy, which works across providers.
+// toolStrategy forces a tool call (tool_choice "any"). Groq's gpt-oss models
+// don't reliably make it (Groq rejects the plain-text reply with a 400), and
+// Claude Sonnet 5.5+ rejects forced tool_choice outright. Use the provider's
+// native structured output there; everything else keeps toolStrategy, which
+// works across providers.
 export function analystResponseFormat(provider: LlmProvider) {
-  return provider === "groq"
+  return provider === "groq" || provider === "anthropic"
     ? providerStrategy(SummarySchema)
     : toolStrategy(SummarySchema);
 }
