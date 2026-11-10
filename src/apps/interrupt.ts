@@ -11,7 +11,7 @@ const deleteRecord = tool(
       type: "approval_required",
       message: `Delete record "${args.id}"? This cannot be undone.`,
       args,
-    });
+    }, { responseSchema: z.enum(["yes", "no"]) });
 
     if (decision !== "yes") {
       return `Deletion of "${args.id}" was rejected by the user.`;

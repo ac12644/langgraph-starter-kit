@@ -3,7 +3,7 @@ import { fastify, type FastifyError, type FastifyServerOptions, type FastifyInst
 import { Command } from "@langchain/langgraph";
 import { AIMessageChunk, BaseMessage } from "@langchain/core/messages";
 import { httpError, validateMessages, validateThreadId } from "./validation";
-import { getThread, pendingInterrupts, type ThreadState } from "./threads";
+import { assertDecisionAllowed, getThread, pendingInterrupts, type ThreadState } from "./threads";
 
 // This module deliberately imports nothing from config/env, so tests can build
 // the server without API keys. index.ts owns startup (MCP, listen, shutdown).
@@ -215,9 +215,10 @@ export function buildServer(
     const body = parseBody<ResumeBody>(req.body);
     const thread_id = validateThreadId(body.thread_id);
     const { decision } = body;
-
-    if (typeof decision !== "string") {
-      throw httpError(400, '"decision" must be a string');
+    // The value is checked against the interrupt's responseSchema below; a
+    // missing one never gets that far: LangGraph rejects an empty Command.
+    if (decision === undefined) {
+      throw httpError(400, '"decision" is required');
     }
 
     // Without this check a Command sent to a thread that isn't paused is a
@@ -227,6 +228,7 @@ export function buildServer(
     if (pendingInterrupts(state).length === 0) {
       throw httpError(409, `Thread "${thread_id}" is not waiting for a decision`);
     }
+    assertDecisionAllowed(state, decision);
 
     const config = { configurable: { thread_id } };
     const result = await invokeWithTimeout(app, new Command({ resume: decision }), config);
