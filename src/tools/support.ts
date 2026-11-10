@@ -178,7 +178,7 @@ export const escalateToHuman = tool(
       type: "escalation",
       message: `Agent is escalating to a human operator. Customer: ${customerId}. Reason: ${reason}`,
       customerId,
-    });
+    }, { responseSchema: z.enum(["yes", "no"]) });
 
     return decision === "yes"
       ? `Escalation accepted. A human agent will take over for customer ${customerId}.`

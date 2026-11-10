@@ -5,7 +5,7 @@ import { MemorySaver } from "@langchain/langgraph";
 import { makeAgent } from "../../src/agents/factory";
 import { makeSupervisor } from "../../src/agents/supervisor";
 import { asApp, buildServer, type AppGraph } from "../../src/server/app";
-import { issueRefund } from "../../src/tools/support";
+import { escalateToHuman, initiateReturn, issueRefund } from "../../src/tools/support";
 import { ScriptedToolCallingModel } from "../helpers/scripted-model";
 
 /**
@@ -102,4 +102,27 @@ it('treats "no" as a rejection', async () => {
   const res = await resume(server, { decision: "no" });
   expect(res.statusCode).toBe(200);
   expect(JSON.stringify(res.json().messages)).toContain("Refund for order ORD-501 was rejected");
+});
+
+// Every approval tool in the support app declares its answers, so none of
+// them quietly treats a typo as "no".
+it.each([
+  ["issue_refund", issueRefund, { orderId: "ORD-501", reason: "broken" }],
+  ["initiate_return", initiateReturn, { orderId: "ORD-501", reason: "broken" }],
+  ["escalate_to_human", escalateToHuman, { customerId: "C-1001", reason: "angry" }],
+] as const)("%s only accepts yes or no", async (name, approvalTool, args) => {
+  const agent = makeAgent({
+    name: "support",
+    llm: new ScriptedToolCallingModel([
+      new AIMessage({ content: "", tool_calls: [{ id: "c1", name, args }] }),
+      new AIMessage("ok"),
+    ]),
+    tools: [approvalTool],
+    checkpointer: new MemorySaver(),
+  });
+  const server = await pausedServer(asApp(agent));
+
+  const res = await resume(server, { decision: "maybe" });
+  expect(res.statusCode).toBe(400);
+  expect(res.json().error).toBe('"decision" must be one of: "yes", "no"');
 });
