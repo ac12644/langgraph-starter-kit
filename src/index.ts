@@ -18,7 +18,7 @@ function lastContent(messages: BaseMessage[]): string {
 
 interface TaskState {
   next?: string[];
-  tasks?: Array<{ interrupts?: Array<{ value?: Record<string, unknown> }> }>;
+  tasks?: Array<{ interrupts?: Array<{ value?: { actionRequests?: { description?: string }[] } }> }>;
 }
 
 async function runDemo(name: string, fn: () => Promise<void>): Promise<void> {
@@ -137,13 +137,14 @@ async function run(): Promise<void> {
 
       const interrupts = (state.tasks ?? []).flatMap((t) => t.interrupts ?? []);
       for (const i of interrupts) {
-        const detail = i.value?.message ?? JSON.stringify(i.value);
-        console.log("interrupt: Approval needed:", detail);
+        for (const action of i.value?.actionRequests ?? []) {
+          console.log("interrupt: Approval needed:", action.description);
+        }
       }
 
-      console.log('interrupt: Approving with "yes"...');
+      console.log("interrupt: Approving...");
       const resumed = await interruptApp.invoke(
-        new Command({ resume: "yes" }),
+        new Command({ resume: { decisions: [{ type: "approve" }] } }),
         hitlCfg
       );
       console.log("interrupt:", lastContent(resumed.messages));

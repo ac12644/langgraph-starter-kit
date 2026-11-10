@@ -1,4 +1,4 @@
-import { summarizationMiddleware } from "langchain";
+import { humanInTheLoopMiddleware, summarizationMiddleware } from "langchain";
 import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
 import { makeSupervisor } from "../agents/supervisor";
@@ -12,22 +12,26 @@ import {
   listTickets,
   initiateReturn,
   escalateToHuman,
+  SUPPORT_APPROVALS,
 } from "../tools/support";
 
 export async function createSupportApp() {
   const llm = await getLlm();
 
   // Specialists are subagents without checkpointers — they inherit the
-  // router's at runtime, so interrupt() inside issue_refund,
-  // initiate_return, or escalate_to_human bubbles up to the main thread.
+  // router's at runtime, so the approval pauses raised by this middleware
+  // (before issue_refund, initiate_return, escalate_to_human) bubble up to
+  // the main thread.
+  const approvals = humanInTheLoopMiddleware({ interruptOn: SUPPORT_APPROVALS });
   const billingAgent = makeAgent({
     name: "billing_agent",
     llm,
     tools: [lookupCustomer, checkBalance, issueRefund, escalateToHuman],
+    middleware: [approvals],
     system: [
       "You are a billing specialist for a SaaS company.",
       "You help customers with account lookups, balance inquiries, and refunds.",
-      "Use the issue_refund tool directly when a refund is requested — the tool handles approval.",
+      "Use the issue_refund tool directly when a refund is requested — approval is handled for you.",
       "If the issue is outside billing, say so in your answer so the router can redirect.",
       "If the customer is upset or the issue is complex, use escalate_to_human.",
       "Always be professional and empathetic.",
@@ -38,6 +42,7 @@ export async function createSupportApp() {
     name: "tech_support_agent",
     llm,
     tools: [lookupOrder, searchOrders, createTicket, listTickets, escalateToHuman],
+    middleware: [approvals],
     system: [
       "You are a technical support specialist.",
       "You help customers with order issues, tracking, and technical problems.",
@@ -51,10 +56,11 @@ export async function createSupportApp() {
     name: "returns_agent",
     llm,
     tools: [lookupOrder, searchOrders, initiateReturn, escalateToHuman],
+    middleware: [approvals],
     system: [
       "You are a returns and exchanges specialist.",
       "You help customers return or exchange delivered products.",
-      "Use the initiate_return tool when the customer wants to return — it handles approval.",
+      "Use the initiate_return tool when the customer wants to return — approval is handled for you.",
       "Returns are only available for orders with status 'delivered'.",
       "If the order isn't delivered yet, explain that and offer alternatives.",
     ].join("\n"),

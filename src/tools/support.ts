@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { tool } from "@langchain/core/tools";
-import { interrupt } from "@langchain/langgraph";
+import type { HumanInTheLoopMiddlewareConfig } from "langchain";
 
 // -- Mock Data --
 
@@ -53,20 +53,9 @@ export const checkBalance = tool(
 );
 
 export const issueRefund = tool(
-  async ({ orderId, reason }) => {
+  async ({ orderId }) => {
     const order = ORDERS[orderId];
     if (!order) return `Order "${orderId}" not found.`;
-
-    const decision = interrupt({
-      type: "refund_approval",
-      message: `Refund $${order.total.toFixed(2)} for order ${orderId} (${order.item})? Reason: ${reason}`,
-      orderId,
-      amount: order.total,
-    }, { responseSchema: z.enum(["yes", "no"]) });
-
-    if (decision !== "yes") {
-      return `Refund for order ${orderId} was rejected.`;
-    }
     return `Refund of $${order.total.toFixed(2)} issued for order ${orderId} (${order.item}).`;
   },
   {
@@ -141,22 +130,11 @@ export const listTickets = tool(
 // -- Returns Tools --
 
 export const initiateReturn = tool(
-  async ({ orderId, reason }) => {
+  async ({ orderId }) => {
     const order = ORDERS[orderId];
     if (!order) return `Order "${orderId}" not found.`;
     if (order.status !== "delivered") {
       return `Cannot initiate return — order ${orderId} status is "${order.status}" (must be "delivered").`;
-    }
-
-    const decision = interrupt({
-      type: "return_approval",
-      message: `Approve return for order ${orderId} (${order.item}, $${order.total.toFixed(2)})? Reason: ${reason}`,
-      orderId,
-      amount: order.total,
-    }, { responseSchema: z.enum(["yes", "no"]) });
-
-    if (decision !== "yes") {
-      return `Return for order ${orderId} was rejected.`;
     }
     return `Return initiated for order ${orderId} (${order.item}). Customer will receive a shipping label via email.`;
   },
@@ -173,17 +151,7 @@ export const initiateReturn = tool(
 // -- Escalation Tool --
 
 export const escalateToHuman = tool(
-  async ({ reason, customerId }) => {
-    const decision = interrupt({
-      type: "escalation",
-      message: `Agent is escalating to a human operator. Customer: ${customerId}. Reason: ${reason}`,
-      customerId,
-    }, { responseSchema: z.enum(["yes", "no"]) });
-
-    return decision === "yes"
-      ? `Escalation accepted. A human agent will take over for customer ${customerId}.`
-      : `Escalation declined. Please continue assisting the customer.`;
-  },
+  async ({ customerId }) => `Escalation accepted. A human agent will take over for customer ${customerId}.`,
   {
     name: "escalate_to_human",
     description: "Escalate the conversation to a human support agent when the issue is too complex or the customer requests it",
@@ -193,3 +161,39 @@ export const escalateToHuman = tool(
     }),
   }
 );
+
+// -- Approvals --
+
+const approveOrReject: ("approve" | "reject")[] = ["approve", "reject"];
+
+/**
+ * Which support tools wait for a human, for humanInTheLoopMiddleware. The
+ * middleware pauses after the model picks its tool calls and asks about all of
+ * them in one interrupt, so a turn with two refunds asks about both together.
+ *
+ * `when` skips the question when the tool would refuse anyway (unknown order,
+ * return on an undelivered order); the tool then explains why.
+ */
+export const SUPPORT_APPROVALS: NonNullable<HumanInTheLoopMiddlewareConfig["interruptOn"]> = {
+  issue_refund: {
+    allowedDecisions: approveOrReject,
+    when: ({ toolCall }) => toolCall.args.orderId in ORDERS,
+    description: ({ args }) => {
+      const order = ORDERS[args.orderId];
+      return `Refund $${order?.total.toFixed(2)} for order ${args.orderId} (${order?.item})? Reason: ${args.reason}`;
+    },
+  },
+  initiate_return: {
+    allowedDecisions: approveOrReject,
+    when: ({ toolCall }) => ORDERS[toolCall.args.orderId]?.status === "delivered",
+    description: ({ args }) => {
+      const order = ORDERS[args.orderId];
+      return `Approve return for order ${args.orderId} (${order?.item}, $${order?.total.toFixed(2)})? Reason: ${args.reason}`;
+    },
+  },
+  escalate_to_human: {
+    allowedDecisions: approveOrReject,
+    description: ({ args }) =>
+      `Escalate to a human operator? Customer: ${args.customerId}. Reason: ${args.reason}`,
+  },
+};

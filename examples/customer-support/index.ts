@@ -15,8 +15,10 @@ import { createSupportApp } from "../../src/apps/support";
 // and you get a clean slate.
 const THREAD = { configurable: { thread_id: "support-example" } };
 
+/** What humanInTheLoopMiddleware pauses with: one entry per tool call. */
 interface PendingInterrupt {
-  value?: { message?: string } & Record<string, unknown>;
+  id: string;
+  value: { actionRequests: { name: string; description?: string }[] };
 }
 
 /** getState's generics don't narrow here; this is the slice we actually read. */
@@ -46,7 +48,7 @@ async function main() {
     THREAD,
   );
 
-  // Refunds and escalations call interrupt(), which pauses the whole graph.
+  // Refunds, returns and escalations wait for approval, which pauses the whole graph.
   const state = (await app.getState(THREAD)) as PausedState;
   const interrupts = (state.tasks ?? []).flatMap((t) => t.interrupts ?? []);
 
@@ -59,12 +61,16 @@ async function main() {
   // --- Paused: this is where a real app would notify a human ---
   console.log("\n--- PAUSED, waiting for a human ---");
   for (const i of interrupts) {
-    console.log(`  ${i.value?.message ?? JSON.stringify(i.value)}`);
+    for (const action of i.value.actionRequests) console.log(`  ${action.description ?? action.name}`);
   }
 
-  // --- Resume with the decision. "no" would flow back just as cleanly. ---
-  console.log('\n--- Approving with "yes" ---');
-  const resumed = await app.invoke(new Command({ resume: "yes" }), THREAD);
+  // --- Approve everything. { type: "reject" } would flow back just as cleanly. ---
+  // Each interrupt is answered by id, with one decision per action it lists.
+  console.log("\n--- Approving ---");
+  const decisions = Object.fromEntries(
+    interrupts.map((i) => [i.id, { decisions: i.value.actionRequests.map(() => ({ type: "approve" })) }]),
+  );
+  const resumed = await app.invoke(new Command({ resume: decisions }), THREAD);
   console.log(lastText(resumed.messages));
 
   console.log("\nThe whole graph paused mid-tool-call and picked up exactly where it");
