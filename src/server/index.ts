@@ -7,6 +7,7 @@ import { createResearcherApp } from "../apps/researcher";
 import { createRagApp } from "../apps/rag";
 import { createSupportApp } from "../apps/support";
 import { loadMcpTools } from "../tools/mcp";
+import { closeCheckpointer } from "../config/checkpointer";
 import { asApp, buildServer, type AppGraph } from "./app";
 
 // -- Startup --
@@ -42,6 +43,7 @@ export async function startServer(): Promise<void> {
     mcpToolsLoaded: mcpTools.length,
     onClose: async () => {
       if (mcpClient) await mcpClient.close();
+      await closeCheckpointer();
     },
     apiKey: API_KEY,
     logger: { level: LOG_LEVEL },

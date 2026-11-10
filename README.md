@@ -213,7 +213,17 @@ curl -X POST http://localhost:3000/interrupt/resume \
   -d '{"thread_id": "hitl-1", "decision": "yes"}'
 ```
 
-When a run pauses, the response's `interrupts` array holds what it's waiting on (empty when it finished). `/stream` sends an `{"type": "interrupt"}` event before `done`. `/resume` returns 404 for an unknown thread, 409 if the thread isn't waiting for a decision, and 400 if `decision` isn't one the tool accepts (`"yes"` or `"no"` for the bundled tools). After a 400 the thread is still paused, so you can answer again.
+When a run pauses, the response's `interrupts` array holds what it's waiting on as `{ "id", "value" }` entries (empty when it finished). `/stream` sends an `{"type": "interrupt"}` event before `done`. `/resume` returns 404 for an unknown thread, 409 if the thread isn't waiting for a decision, and 400 if `decision` isn't one the tool accepts (`"yes"` or `"no"` for the bundled tools). After a 400 the thread is still paused, so you can answer again.
+
+If the agent asks for several approvals in one turn, `decision` is rejected (one answer would approve all of them). Answer each by id instead:
+
+```bash
+curl -X POST http://localhost:3000/interrupt/resume \
+  -H "Content-Type: application/json" \
+  -d '{"thread_id": "hitl-1", "decisions": {"<interrupt id>": "yes", "<other id>": "no"}}'
+```
+
+This only covers interrupts raised by the app's own agent. When a subagent under a supervisor asks for several at once, LangGraph reports just one of them, and the answer applies to all of them.
 
 ### 4. Structured Output
 
@@ -310,6 +320,8 @@ LANGSMITH_PROJECT=langgraph-starter-kit
 | `/health` | GET | Health check |
 
 When `API_KEY` is set, send `-H "Authorization: Bearer $API_KEY"` with every request except `/health`.
+
+Every response includes the `thread_id` (`/stream` puts it on the `interrupt` and `done` events). Pass it back to continue the conversation. If you leave it out, the server starts a new thread with a random id. Threads belong to one app, so `/support` and `/swarm` never see each other's history, even when they share a Postgres database.
 
 **Apps:** `swarm` `supervisor` `interrupt` `analyst` `researcher` `rag` `support`
 

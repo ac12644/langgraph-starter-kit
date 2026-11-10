@@ -63,7 +63,9 @@ describe("pendingInterrupts", () => {
 
     await app.invoke({ messages: [{ role: "user", content: "delete rec_2" }] }, config);
     const paused = await getThread(app, "t1");
-    expect(pendingInterrupts(paused)).toEqual([{ type: "approval_required", id: "rec_2" }]);
+    expect(pendingInterrupts(paused)).toEqual([
+      { id: expect.any(String), value: { type: "approval_required", id: "rec_2" } },
+    ]);
 
     await app.invoke(new Command({ resume: "yes" }), config);
     const done = await getThread(app, "t1");

@@ -554,7 +554,7 @@ function generateServer(config: Config): string {
     : "";
 
   return `import "./config/env";
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { fastify, type FastifyError, type FastifyReply, type FastifyRequest } from "fastify";
 import { Command } from "@langchain/langgraph";
 import { AIMessageChunk, type BaseMessage } from "@langchain/core/messages";
@@ -571,32 +571,67 @@ interface AppGraph {
 interface ThreadState {
   values?: unknown;
   next?: string[];
-  tasks?: { interrupts?: { value?: unknown; response_schema?: unknown }[] }[];
+  tasks?: { interrupts?: RawInterrupt[] }[];
   createdAt?: string | null;
+}
+interface RawInterrupt {
+  id?: string;
+  value?: unknown;
+  response_schema?: unknown;
 }
 const asApp = (g: unknown) => g as AppGraph;
 
-/** What each pending interrupt() was given. Empty when the thread isn't paused. */
-function pendingInterrupts(state: ThreadState | undefined): unknown[] {
-  return (state?.tasks ?? []).flatMap((t) => t.interrupts ?? []).map((i) => i.value);
+const rawInterrupts = (state: ThreadState | undefined) => (state?.tasks ?? []).flatMap((t) => t.interrupts ?? []);
+
+/**
+ * Each pending interrupt() payload with its id. Empty when the thread isn't
+ * paused. Clients send the id back in "decisions" when several are pending.
+ */
+function pendingInterrupts(state: ThreadState | undefined) {
+  return rawInterrupts(state).map(({ id, value }) => ({ id: id ?? "", value }));
 }
 
 /**
- * Rejects a decision the paused interrupt's responseSchema doesn't allow.
- * LangGraph checks it too, but inside an agent's tool a failed check goes to
- * the model as a tool error and the run carries on, so check it here.
- * Only enum and primitive type schemas are handled.
+ * Rejects a decision the interrupt's responseSchema doesn't allow. LangGraph
+ * checks it too, but inside an agent's tool a failed check goes to the model
+ * as a tool error and the run carries on, so check it here. Only enum and
+ * primitive type schemas are handled.
  */
-function assertDecisionAllowed(state: ThreadState | undefined, decision: unknown) {
-  for (const { response_schema } of (state?.tasks ?? []).flatMap((t) => t.interrupts ?? [])) {
-    const schema = response_schema as { enum?: unknown[]; type?: string } | undefined;
-    if (schema?.enum && !schema.enum.includes(decision)) {
-      throw httpError(400, \`"decision" must be one of: \${schema.enum.map((v) => JSON.stringify(v)).join(", ")}\`);
-    }
-    if (["string", "number", "boolean"].includes(schema?.type ?? "") && typeof decision !== schema?.type) {
-      throw httpError(400, \`"decision" must be a \${schema?.type}\`);
-    }
+function assertDecisionAllowed(schema: unknown, decision: unknown, field: string) {
+  const s = schema as { enum?: unknown[]; type?: string } | undefined;
+  if (s?.enum && !s.enum.includes(decision)) {
+    throw httpError(400, \`\${field} must be one of: \${s.enum.map((v) => JSON.stringify(v)).join(", ")}\`);
   }
+  if (["string", "number", "boolean"].includes(s?.type ?? "") && typeof decision !== s?.type) {
+    throw httpError(400, \`\${field} must be a \${s?.type}\`);
+  }
+}
+
+/**
+ * The value for Command({ resume }). "decision" answers the one pending
+ * interrupt; with several pending it is a 400, since LangGraph would give the
+ * same answer to all of them. "decisions" maps interrupt ids to answers.
+ */
+function resumeValue(state: ThreadState, body: { decision?: unknown; decisions?: unknown }) {
+  const pending = rawInterrupts(state);
+  const { decision, decisions } = body;
+  if (decisions !== undefined) {
+    if (typeof decisions !== "object" || decisions === null || Array.isArray(decisions) || Object.keys(decisions).length === 0) {
+      throw httpError(400, '"decisions" must be an object of interrupt id to decision');
+    }
+    for (const [id, d] of Object.entries(decisions)) {
+      const match = pending.find((i) => i.id === id);
+      if (!match) throw httpError(400, \`No pending interrupt with id "\${id}"\`);
+      assertDecisionAllowed(match.response_schema, d, \`decisions["\${id}"]\`);
+    }
+    return decisions;
+  }
+  if (decision === undefined) throw httpError(400, '"decision" is required');
+  if (pending.length > 1) {
+    throw httpError(400, \`\${pending.length} interrupts are pending; send "decisions" keyed by interrupt id\`);
+  }
+  assertDecisionAllowed(pending[0]?.response_schema, decision, '"decision"');
+  return decision;
 }
 
 function httpError(status: number, message: string) {
@@ -623,9 +658,13 @@ function validateMessages(raw: unknown): { role: string; content: string }[] {
   });
 }
 
-/** Defaults to "default"; anything but a non-empty string is a 400, not a 500. */
+/**
+ * A new random id when omitted (returned in the response), so callers who
+ * don't pass one never share a conversation. Anything but a non-empty string
+ * is a 400, not a 500.
+ */
 function validateThreadId(raw: unknown): string {
-  if (raw === undefined) return "default";
+  if (raw === undefined) return randomUUID();
   if (typeof raw !== "string" || raw.trim() === "") {
     throw httpError(400, '"thread_id" must be a non-empty string');
   }
@@ -697,6 +736,7 @@ ${entries}${ragEntry}
     const result = await invokeWithTimeout(app, { messages }, config);
     const last = result.messages.at(-1);
     return reply.send({
+      thread_id,
       messages: result.messages,
       structuredResponse: (result as Record<string, unknown>).structuredResponse ?? null,
       lastMessage: last?.text,
@@ -735,8 +775,8 @@ ${entries}${ragEntry}
         }
       }
       const interrupts = pendingInterrupts(await app.getState({ configurable: { thread_id } }));
-      if (interrupts.length > 0) send({ type: "interrupt", content: interrupts });
-      send({ type: "done" });
+      if (interrupts.length > 0) send({ type: "interrupt", content: interrupts, thread_id });
+      send({ type: "done", thread_id });
     } catch (err) {
       if (controller.signal.aborted) return;
       if (timeout?.aborted) return send({ type: "error", content: timedOut().message });
@@ -749,9 +789,10 @@ ${entries}${ragEntry}
 
   server.post<{ Params: { app: string } }>("/:app/resume", async (req, reply) => {
     const app = getApp(req.params.app);
-    const body = (req.body ?? {}) as { thread_id?: unknown; decision?: unknown };
+    const body = (req.body ?? {}) as { thread_id?: unknown; decision?: unknown; decisions?: unknown };
+    // No default: a generated id would never match a paused thread.
+    if (body.thread_id === undefined) throw httpError(400, '"thread_id" is required');
     const thread_id = validateThreadId(body.thread_id);
-    if (body.decision === undefined) throw httpError(400, '"decision" is required');
 
     // Resuming a thread that isn't paused is a silent no-op — refuse it so an
     // approval UI can't report "approved" for something that never waited.
@@ -759,12 +800,13 @@ ${entries}${ragEntry}
     if (pendingInterrupts(state).length === 0) {
       throw httpError(409, \`Thread "\${thread_id}" is not waiting for a decision\`);
     }
-    assertDecisionAllowed(state, body.decision);
+    const resume = resumeValue(state, body);
 
     const config = { configurable: { thread_id } };
-    const result = await invokeWithTimeout(app, new Command({ resume: body.decision }), config);
+    const result = await invokeWithTimeout(app, new Command({ resume }), config);
     const last = result.messages.at(-1);
     return reply.send({
+      thread_id,
       messages: result.messages,
       lastMessage: last?.text,
       // A resumed run can pause again (e.g. a second approval).

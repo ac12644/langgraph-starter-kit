@@ -2,6 +2,8 @@ import { MemorySaver, InMemoryStore } from "@langchain/langgraph";
 import type { BaseCheckpointSaver, BaseStore } from "@langchain/langgraph-checkpoint";
 import { DATABASE_URL } from "./env";
 
+let _checkpointer: Promise<BaseCheckpointSaver> | undefined;
+
 /**
  * Returns a checkpointer for graph compilation.
  *
@@ -9,10 +11,25 @@ import { DATABASE_URL } from "./env";
  * - `DATABASE_URL` set → Postgres-backed `PostgresSaver`, with tables created
  *   on first run via `setup()` (idempotent).
  *
+ * Memoized: every app shares one instance, so Postgres gets one connection
+ * pool and one `setup()`, not one per app. The server keeps apps' threads
+ * apart by prefixing thread ids (see scopeThreads in server/app.ts).
+ *
  * `@langchain/langgraph-checkpoint-postgres` is an optional dependency, loaded
  * lazily so the `pg` driver is only pulled in when Postgres is actually used.
  */
-export async function getCheckpointer(): Promise<BaseCheckpointSaver> {
+export function getCheckpointer(): Promise<BaseCheckpointSaver> {
+  _checkpointer ??= createCheckpointer();
+  return _checkpointer;
+}
+
+/** Closes the Postgres pool, if one was opened. Call on shutdown. */
+export async function closeCheckpointer(): Promise<void> {
+  const saver = (await _checkpointer) as { end?: () => Promise<void> } | undefined;
+  await saver?.end?.();
+}
+
+async function createCheckpointer(): Promise<BaseCheckpointSaver> {
   if (!DATABASE_URL) {
     return new MemorySaver();
   }
