@@ -571,7 +571,7 @@ interface AppGraph {
 interface ThreadState {
   values?: unknown;
   next?: string[];
-  tasks?: { interrupts?: { value?: unknown }[] }[];
+  tasks?: { interrupts?: { value?: unknown; response_schema?: unknown }[] }[];
   createdAt?: string | null;
 }
 const asApp = (g: unknown) => g as AppGraph;
@@ -579,6 +579,24 @@ const asApp = (g: unknown) => g as AppGraph;
 /** What each pending interrupt() was given. Empty when the thread isn't paused. */
 function pendingInterrupts(state: ThreadState | undefined): unknown[] {
   return (state?.tasks ?? []).flatMap((t) => t.interrupts ?? []).map((i) => i.value);
+}
+
+/**
+ * Rejects a decision the paused interrupt's responseSchema doesn't allow.
+ * LangGraph checks it too, but inside an agent's tool a failed check goes to
+ * the model as a tool error and the run carries on, so check it here.
+ * Only enum and primitive type schemas are handled.
+ */
+function assertDecisionAllowed(state: ThreadState | undefined, decision: unknown) {
+  for (const { response_schema } of (state?.tasks ?? []).flatMap((t) => t.interrupts ?? [])) {
+    const schema = response_schema as { enum?: unknown[]; type?: string } | undefined;
+    if (schema?.enum && !schema.enum.includes(decision)) {
+      throw httpError(400, \`"decision" must be one of: \${schema.enum.map((v) => JSON.stringify(v)).join(", ")}\`);
+    }
+    if (["string", "number", "boolean"].includes(schema?.type ?? "") && typeof decision !== schema?.type) {
+      throw httpError(400, \`"decision" must be a \${schema?.type}\`);
+    }
+  }
 }
 
 function httpError(status: number, message: string) {
@@ -733,13 +751,15 @@ ${entries}${ragEntry}
     const app = getApp(req.params.app);
     const body = (req.body ?? {}) as { thread_id?: unknown; decision?: unknown };
     const thread_id = validateThreadId(body.thread_id);
-    if (typeof body.decision !== "string") throw httpError(400, '"decision" must be a string');
+    if (body.decision === undefined) throw httpError(400, '"decision" is required');
 
     // Resuming a thread that isn't paused is a silent no-op — refuse it so an
     // approval UI can't report "approved" for something that never waited.
-    if (pendingInterrupts(await getThread(app, thread_id)).length === 0) {
+    const state = await getThread(app, thread_id);
+    if (pendingInterrupts(state).length === 0) {
       throw httpError(409, \`Thread "\${thread_id}" is not waiting for a decision\`);
     }
+    assertDecisionAllowed(state, body.decision);
 
     const config = { configurable: { thread_id } };
     const result = await invokeWithTimeout(app, new Command({ resume: body.decision }), config);
@@ -1142,7 +1162,7 @@ const deleteRecord = tool(
       type: "approval_required",
       message: \`Delete record "\${args.id}"? This cannot be undone.\`,
       args,
-    });
+    }, { responseSchema: z.enum(["yes", "no"]) });
     return decision === "yes"
       ? \`Record "\${args.id}" deleted.\`
       : \`Deletion of "\${args.id}" rejected.\`;

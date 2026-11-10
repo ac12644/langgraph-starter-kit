@@ -62,7 +62,7 @@ export const issueRefund = tool(
       message: `Refund $${order.total.toFixed(2)} for order ${orderId} (${order.item})? Reason: ${reason}`,
       orderId,
       amount: order.total,
-    });
+    }, { responseSchema: z.enum(["yes", "no"]) });
 
     if (decision !== "yes") {
       return `Refund for order ${orderId} was rejected.`;
@@ -153,7 +153,7 @@ export const initiateReturn = tool(
       message: `Approve return for order ${orderId} (${order.item}, $${order.total.toFixed(2)})? Reason: ${reason}`,
       orderId,
       amount: order.total,
-    });
+    }, { responseSchema: z.enum(["yes", "no"]) });
 
     if (decision !== "yes") {
       return `Return for order ${orderId} was rejected.`;

@@ -201,8 +201,12 @@ outer graph only). It becomes your problem when you compose agents manually.
 The full HITL flow:
 
 ```typescript
-// 1. A tool anywhere in the tree calls interrupt()
-const decision = interrupt({ type: "approval_required", message: "Delete rec_2?" });
+// 1. A tool anywhere in the tree calls interrupt(). responseSchema says which
+//    answers are valid; /resume rejects anything else with a 400.
+const decision = interrupt(
+  { type: "approval_required", message: "Delete rec_2?" },
+  { responseSchema: z.enum(["yes", "no"]) }
+);
 // (code after interrupt() runs on resume, with `decision` = the resume value)
 
 // 2. Invoke returns with the graph paused. Inspect why:
