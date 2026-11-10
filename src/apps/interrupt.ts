@@ -1,24 +1,12 @@
 import { z } from "zod";
 import { tool } from "@langchain/core/tools";
-import { interrupt } from "@langchain/langgraph";
+import { humanInTheLoopMiddleware } from "langchain";
 import { getLlm } from "../config/llm";
 import { getCheckpointer } from "../config/checkpointer";
 import { makeAgent } from "../agents/factory";
 
 const deleteRecord = tool(
-  async (args) => {
-    const decision = interrupt({
-      type: "approval_required",
-      message: `Delete record "${args.id}"? This cannot be undone.`,
-      args,
-    }, { responseSchema: z.enum(["yes", "no"]) });
-
-    if (decision !== "yes") {
-      return `Deletion of "${args.id}" was rejected by the user.`;
-    }
-
-    return `Record "${args.id}" deleted successfully.`;
-  },
+  async ({ id }) => `Record "${id}" deleted successfully.`,
   {
     name: "delete_record",
     description: "Delete a record by ID. Requires human approval.",
@@ -44,14 +32,25 @@ const listRecords = tool(
 export async function createInterruptApp() {
   const llm = await getLlm();
 
-  // A single agent with a checkpointer — interrupt() inside delete_record
-  // pauses the graph; resume with Command({ resume: "yes" }) on the thread.
+  // A single agent with a checkpointer. The middleware pauses before
+  // delete_record runs; resume on the same thread with
+  // Command({ resume: { decisions: [{ type: "approve" }] } }), or "reject".
   return makeAgent({
     name: "db_admin",
     llm,
     tools: [listRecords, deleteRecord],
     system:
-      "You are a database administrator. You can list and delete records. When asked to delete a record, use the delete_record tool immediately — the tool itself handles approval.",
+      "You are a database administrator. You can list and delete records. When asked to delete a record, use the delete_record tool immediately — approval is handled for you.",
     checkpointer: await getCheckpointer(),
+    middleware: [
+      humanInTheLoopMiddleware({
+        interruptOn: {
+          delete_record: {
+            allowedDecisions: ["approve", "reject"],
+            description: ({ args }) => `Delete record "${args.id}"? This cannot be undone.`,
+          },
+        },
+      }),
+    ],
   });
 }

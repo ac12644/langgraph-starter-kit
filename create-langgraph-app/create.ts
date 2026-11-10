@@ -252,10 +252,10 @@ export const LLM_MODEL = process.env.LLM_MODEL || undefined;
 export const LLM_TEMPERATURE = process.env.LLM_TEMPERATURE
   ? Number(process.env.LLM_TEMPERATURE)
   : undefined;
-// Uses || rather than ?? so an empty DEEPSEEK_THINKING= in .env falls back
+${config.provider === "deepseek" ? `// Uses || rather than ?? so an empty DEEPSEEK_THINKING= in .env falls back
 // to "disabled" instead of sending an invalid thinking type to the API.
 export const DEEPSEEK_THINKING = process.env.DEEPSEEK_THINKING || "disabled";
-export const PORT = Number(process.env.PORT ?? 3000);
+` : ""}export const PORT = Number(process.env.PORT ?? 3000);
 export const API_KEY = process.env.API_KEY || undefined;
 export const LOG_LEVEL = process.env.LOG_LEVEL || "info";
 export const RUN_TIMEOUT_MS = Number(process.env.RUN_TIMEOUT_MS ?? 120_000);
@@ -411,6 +411,8 @@ export interface MakeAgentParams {
    * interrupt() calls bubble up to the top-level graph.
    */
   checkpointer?: BaseCheckpointSaver;
+  /** Middleware wrapping the agent loop, e.g. humanInTheLoopMiddleware. */
+  middleware?: CreateAgentParams["middleware"];
 }
 
 /** Wraps LangChain's createAgent with a simpler interface. */
@@ -421,6 +423,7 @@ export function makeAgent({
   system,
   responseFormat,
   checkpointer,
+  middleware,
 }: MakeAgentParams) {
   return createAgent({
     name,
@@ -429,6 +432,7 @@ export function makeAgent({
     ...(system ? { systemPrompt: system } : {}),
     ...(responseFormat ? { responseFormat } : {}),
     ...(checkpointer ? { checkpointer } : {}),
+    ...(middleware ? { middleware } : {}),
   });
 }
 
@@ -577,7 +581,6 @@ interface ThreadState {
 interface RawInterrupt {
   id?: string;
   value?: unknown;
-  response_schema?: unknown;
 }
 const asApp = (g: unknown) => g as AppGraph;
 
@@ -591,26 +594,48 @@ function pendingInterrupts(state: ThreadState | undefined) {
   return rawInterrupts(state).map(({ id, value }) => ({ id: id ?? "", value }));
 }
 
+/** The interrupt humanInTheLoopMiddleware raises: one entry per tool call. */
+interface ApprovalRequest {
+  actionRequests: unknown[];
+  reviewConfigs: { allowedDecisions?: string[] }[];
+}
+
+const isApprovalRequest = (v: unknown): v is ApprovalRequest =>
+  Array.isArray((v as ApprovalRequest)?.actionRequests) && Array.isArray((v as ApprovalRequest)?.reviewConfigs);
+
 /**
- * Rejects a decision the interrupt's responseSchema doesn't allow. LangGraph
- * checks it too, but inside an agent's tool a failed check goes to the model
- * as a tool error and the run carries on, so check it here. Only enum and
- * primitive type schemas are handled.
+ * Turns "approve", ["approve", "reject"] or decision objects into the
+ * middleware's { decisions }. Checked here because the middleware throws on a
+ * bad answer (a 500, or under a supervisor a tool error the model reads).
  */
-function assertDecisionAllowed(schema: unknown, decision: unknown, field: string) {
-  const s = schema as { enum?: unknown[]; type?: string } | undefined;
-  if (s?.enum && !s.enum.includes(decision)) {
-    throw httpError(400, \`\${field} must be one of: \${s.enum.map((v) => JSON.stringify(v)).join(", ")}\`);
+function approvalDecisions(request: ApprovalRequest, answer: unknown, field: string) {
+  const answers = Array.isArray(answer) ? answer : [answer];
+  const count = request.actionRequests.length;
+  if (answers.length !== count) {
+    throw httpError(400, \`\${field} needs one answer per action: \${count} pending, got \${answers.length}\`);
   }
-  if (["string", "number", "boolean"].includes(s?.type ?? "") && typeof decision !== s?.type) {
-    throw httpError(400, \`\${field} must be a \${s?.type}\`);
-  }
+  const decisions = answers.map((a, i) => {
+    const d = typeof a === "string" ? { type: a } : (a as { type?: unknown } | null);
+    const allowed = request.reviewConfigs[i]?.allowedDecisions ?? [];
+    if (!d || typeof d.type !== "string" || !allowed.includes(d.type)) {
+      const at = count > 1 ? \`\${field}[\${i}]\` : field;
+      throw httpError(400, \`\${at} must be one of: \${allowed.map((x) => JSON.stringify(x)).join(", ")}\`);
+    }
+    return d;
+  });
+  return { decisions };
+}
+
+/** Approval answers are checked; a custom interrupt() gets the answer as sent. */
+function answerFor(interrupt: RawInterrupt, answer: unknown, field: string) {
+  return isApprovalRequest(interrupt.value) ? approvalDecisions(interrupt.value, answer, field) : answer;
 }
 
 /**
  * The value for Command({ resume }). "decision" answers the one pending
  * interrupt; with several pending it is a 400, since LangGraph would give the
- * same answer to all of them. "decisions" maps interrupt ids to answers.
+ * same answer to all of them. "decisions" maps every pending interrupt's id
+ * to its answer.
  */
 function resumeValue(state: ThreadState, body: { decision?: unknown; decisions?: unknown }) {
   const pending = rawInterrupts(state);
@@ -619,19 +644,24 @@ function resumeValue(state: ThreadState, body: { decision?: unknown; decisions?:
     if (typeof decisions !== "object" || decisions === null || Array.isArray(decisions) || Object.keys(decisions).length === 0) {
       throw httpError(400, '"decisions" must be an object of interrupt id to decision');
     }
-    for (const [id, d] of Object.entries(decisions)) {
-      const match = pending.find((i) => i.id === id);
-      if (!match) throw httpError(400, \`No pending interrupt with id "\${id}"\`);
-      assertDecisionAllowed(match.response_schema, d, \`decisions["\${id}"]\`);
+    const answers = Object.fromEntries(
+      Object.entries(decisions).map(([id, d]) => {
+        const match = pending.find((i) => i.id === id);
+        if (!match) throw httpError(400, \`No pending interrupt with id "\${id}"\`);
+        return [id, answerFor(match, d, \`decisions["\${id}"]\`)];
+      })
+    );
+    const missing = pending.map((i) => i.id).filter((id) => id && !(id in answers));
+    if (missing.length > 0) {
+      throw httpError(400, \`"decisions" must answer every pending interrupt; missing: \${missing.join(", ")}\`);
     }
-    return decisions;
+    return answers;
   }
   if (decision === undefined) throw httpError(400, '"decision" is required');
   if (pending.length > 1) {
     throw httpError(400, \`\${pending.length} interrupts are pending; send "decisions" keyed by interrupt id\`);
   }
-  assertDecisionAllowed(pending[0]?.response_schema, decision, '"decision"');
-  return decision;
+  return answerFor(pending[0] ?? {}, decision, '"decision"');
 }
 
 function httpError(status: number, message: string) {
@@ -1194,21 +1224,13 @@ export async function createSwarmApp() {
       path: "src/apps/interrupt.ts",
       content: `import { z } from "zod";
 import { tool } from "@langchain/core/tools";
-import { interrupt, MemorySaver } from "@langchain/langgraph";
+import { MemorySaver } from "@langchain/langgraph";
+import { humanInTheLoopMiddleware } from "langchain";
 import { getLlm } from "../config/llm";
 import { makeAgent } from "../agents/factory";
 
 const deleteRecord = tool(
-  async (args) => {
-    const decision = interrupt({
-      type: "approval_required",
-      message: \`Delete record "\${args.id}"? This cannot be undone.\`,
-      args,
-    }, { responseSchema: z.enum(["yes", "no"]) });
-    return decision === "yes"
-      ? \`Record "\${args.id}" deleted.\`
-      : \`Deletion of "\${args.id}" rejected.\`;
-  },
+  async ({ id }) => \`Record "\${id}" deleted.\`,
   {
     name: "delete_record",
     description: "Delete a record by ID. Requires human approval.",
@@ -1219,13 +1241,24 @@ const deleteRecord = tool(
 export async function createInterruptApp() {
   const llm = await getLlm();
 
-  // A single agent with a checkpointer — interrupt() inside delete_record
-  // pauses the graph; resume with Command({ resume: "yes" }) on the thread.
+  // A single agent with a checkpointer. The middleware pauses before
+  // delete_record runs; resume on the same thread with
+  // Command({ resume: { decisions: [{ type: "approve" }] } }), or "reject".
   return makeAgent({
     name: "db_admin", llm,
     tools: [deleteRecord],
     system: "You are a database administrator.",
     checkpointer: new MemorySaver(),
+    middleware: [
+      humanInTheLoopMiddleware({
+        interruptOn: {
+          delete_record: {
+            allowedDecisions: ["approve", "reject"],
+            description: ({ args }) => \`Delete record "\${args.id}"? This cannot be undone.\`,
+          },
+        },
+      }),
+    ],
   });
 }
 `,
@@ -1242,7 +1275,7 @@ export async function createInterruptApp() {
   const state = await interruptApp.getState(hitlCfg) as any;
   if ((state.next ?? []).length > 0) {
     console.log("Graph paused — approving...");
-    const resumed = await interruptApp.invoke(new Command({ resume: "yes" }), hitlCfg);
+    const resumed = await interruptApp.invoke(new Command({ resume: { decisions: [{ type: "approve" }] } }), hitlCfg);
     console.log("Result:", resumed.messages.at(-1)?.text);
   }`);
   }

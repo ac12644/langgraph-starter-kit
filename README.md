@@ -207,23 +207,29 @@ curl -X POST http://localhost:3000/interrupt/invoke \
   -H "Content-Type: application/json" \
   -d '{"messages": [{"role": "user", "content": "delete record rec_2"}], "thread_id": "hitl-1"}'
 
-# Approve it
+# Approve it ("reject" to refuse)
 curl -X POST http://localhost:3000/interrupt/resume \
   -H "Content-Type: application/json" \
-  -d '{"thread_id": "hitl-1", "decision": "yes"}'
+  -d '{"thread_id": "hitl-1", "decision": "approve"}'
 ```
 
-When a run pauses, the response's `interrupts` array holds what it's waiting on as `{ "id", "value" }` entries (empty when it finished). `/stream` sends an `{"type": "interrupt"}` event before `done`. `/resume` returns 404 for an unknown thread, 409 if the thread isn't waiting for a decision, and 400 if `decision` isn't one the tool accepts (`"yes"` or `"no"` for the bundled tools). After a 400 the thread is still paused, so you can answer again.
+Approval is handled by LangChain's `humanInTheLoopMiddleware`: the tools just act, and the middleware pauses before the ones listed in `interruptOn` run. When a run pauses, the response's `interrupts` array holds what it's waiting on as `{ "id", "value" }` entries (empty when it finished). Each `value.actionRequests` lists the tool calls awaiting a decision, with a `description` to show the reviewer. `/stream` sends an `{"type": "interrupt"}` event before `done`.
 
-If the agent asks for several approvals in one turn, `decision` is rejected (one answer would approve all of them). Answer each by id instead:
+If the model asks for several approvals in one turn, they arrive as one interrupt with several actions. Answer each in order:
 
 ```bash
-curl -X POST http://localhost:3000/interrupt/resume \
-  -H "Content-Type: application/json" \
-  -d '{"thread_id": "hitl-1", "decisions": {"<interrupt id>": "yes", "<other id>": "no"}}'
+-d '{"thread_id": "hitl-1", "decision": ["approve", "reject"]}'
 ```
 
-This only covers interrupts raised by the app's own agent. When a subagent under a supervisor asks for several at once, LangGraph reports just one of them, and the answer applies to all of them.
+Rejecting any of them sends the model back to re-plan, and the approved ones in that batch don't run either (that's LangChain's rule). An answer can also be an object, e.g. `{"type": "reject", "message": "Not eligible"}`, which the model sees as the reason.
+
+When more than one agent is waiting (a supervisor ran two subagents that both need approval), there is one interrupt per agent. Answer all of them by id:
+
+```bash
+-d '{"thread_id": "hitl-1", "decisions": {"<interrupt id>": "approve", "<other id>": ["approve", "reject"]}}'
+```
+
+`/resume` returns 404 for an unknown thread, 409 if the thread isn't waiting for a decision, and 400 for an answer the interrupt doesn't accept, a wrong number of answers, or a `decisions` map that skips a pending interrupt. After a 400 the thread is still paused, so you can answer again.
 
 ### 4. Structured Output
 

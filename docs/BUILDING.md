@@ -198,7 +198,39 @@ break in a way that fails silently — the graph just doesn't pause.
 `makeSupervisor` and `makeSwarm` already follow this rule (they checkpoint the
 outer graph only). It becomes your problem when you compose agents manually.
 
-The full HITL flow:
+For approving tool calls, use LangChain's `humanInTheLoopMiddleware` (the bundled
+`interrupt` and `support` apps do). The tool stays a plain action; the middleware
+pauses before it runs and asks about every listed call from that turn at once:
+
+```typescript
+import { humanInTheLoopMiddleware } from "langchain";
+
+makeAgent({
+  name: "billing",
+  llm,
+  tools: [issueRefund],
+  middleware: [
+    humanInTheLoopMiddleware({
+      interruptOn: {
+        issue_refund: {
+          allowedDecisions: ["approve", "reject"],
+          description: ({ args }) => `Refund order ${args.orderId}?`,
+        },
+      },
+    }),
+  ],
+});
+
+// Resume with one decision per pending tool call:
+await app.invoke(new Command({ resume: { decisions: [{ type: "approve" }] } }), config);
+```
+
+Prefer it over calling `interrupt()` inside each tool: when a subagent makes two
+such calls in one turn, LangGraph surfaces only one of them to the parent and
+resumes both with that answer. The middleware batches them into one interrupt.
+
+For any other pause (asking the user a question, confirming a plan), call
+`interrupt()` yourself. The full flow:
 
 ```typescript
 // 1. A tool anywhere in the tree calls interrupt(). responseSchema says which
@@ -223,7 +255,7 @@ Over HTTP this is `POST /:app/invoke` → `POST /:app/resume` (see the README's
 HITL section). Both return an `interrupts` array of `{ id, value }` — non-empty means the run is
 paused and waiting on those payloads, so clients don't need to poll the thread.
 With several pending, resume each by id: `new Command({ resume: { [id]: "yes" } })`,
-or `"decisions"` over HTTP. Interrupts propagate through arbitrarily nested agent layers —
+or `"decisions"` over HTTP (which must answer all of them). Interrupts propagate through arbitrarily nested agent layers —
 the `support` app raises them from tools two levels deep.
 
 ## Middleware

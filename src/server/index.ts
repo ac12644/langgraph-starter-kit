@@ -12,7 +12,7 @@ import { asApp, buildServer, type AppGraph } from "./app";
 
 // -- Startup --
 
-export async function startServer(): Promise<void> {
+async function startServer(): Promise<void> {
   // Load MCP tools first — they get injected into agents
   const { tools: mcpTools, client: mcpClient } = await loadMcpTools();
 
