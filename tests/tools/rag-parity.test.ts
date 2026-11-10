@@ -1,8 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { InMemoryVectorStore, buildVectorStore } from "../../src/tools/rag";
+import { buildVectorStore } from "../../src/tools/rag";
 import type { Embeddings } from "@langchain/core/embeddings";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { getPatternFiles, type Config } from "../../create-langgraph-app/create";

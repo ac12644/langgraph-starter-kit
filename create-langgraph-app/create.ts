@@ -252,10 +252,10 @@ export const LLM_MODEL = process.env.LLM_MODEL || undefined;
 export const LLM_TEMPERATURE = process.env.LLM_TEMPERATURE
   ? Number(process.env.LLM_TEMPERATURE)
   : undefined;
-// Uses || rather than ?? so an empty DEEPSEEK_THINKING= in .env falls back
+${config.provider === "deepseek" ? `// Uses || rather than ?? so an empty DEEPSEEK_THINKING= in .env falls back
 // to "disabled" instead of sending an invalid thinking type to the API.
 export const DEEPSEEK_THINKING = process.env.DEEPSEEK_THINKING || "disabled";
-export const PORT = Number(process.env.PORT ?? 3000);
+` : ""}export const PORT = Number(process.env.PORT ?? 3000);
 export const API_KEY = process.env.API_KEY || undefined;
 export const LOG_LEVEL = process.env.LOG_LEVEL || "info";
 export const RUN_TIMEOUT_MS = Number(process.env.RUN_TIMEOUT_MS ?? 120_000);
@@ -581,7 +581,6 @@ interface ThreadState {
 interface RawInterrupt {
   id?: string;
   value?: unknown;
-  response_schema?: unknown;
 }
 const asApp = (g: unknown) => g as AppGraph;
 
@@ -593,22 +592,6 @@ const rawInterrupts = (state: ThreadState | undefined) => (state?.tasks ?? []).f
  */
 function pendingInterrupts(state: ThreadState | undefined) {
   return rawInterrupts(state).map(({ id, value }) => ({ id: id ?? "", value }));
-}
-
-/**
- * Rejects a decision the interrupt's responseSchema doesn't allow. LangGraph
- * checks it too, but inside an agent's tool a failed check goes to the model
- * as a tool error and the run carries on, so check it here. Only enum and
- * primitive type schemas are handled.
- */
-function assertDecisionAllowed(schema: unknown, decision: unknown, field: string) {
-  const s = schema as { enum?: unknown[]; type?: string } | undefined;
-  if (s?.enum && !s.enum.includes(decision)) {
-    throw httpError(400, \`\${field} must be one of: \${s.enum.map((v) => JSON.stringify(v)).join(", ")}\`);
-  }
-  if (["string", "number", "boolean"].includes(s?.type ?? "") && typeof decision !== s?.type) {
-    throw httpError(400, \`\${field} must be a \${s?.type}\`);
-  }
 }
 
 /** The interrupt humanInTheLoopMiddleware raises: one entry per tool call. */
@@ -643,10 +626,9 @@ function approvalDecisions(request: ApprovalRequest, answer: unknown, field: str
   return { decisions };
 }
 
+/** Approval answers are checked; a custom interrupt() gets the answer as sent. */
 function answerFor(interrupt: RawInterrupt, answer: unknown, field: string) {
-  if (isApprovalRequest(interrupt.value)) return approvalDecisions(interrupt.value, answer, field);
-  assertDecisionAllowed(interrupt.response_schema, answer, field);
-  return answer;
+  return isApprovalRequest(interrupt.value) ? approvalDecisions(interrupt.value, answer, field) : answer;
 }
 
 /**
