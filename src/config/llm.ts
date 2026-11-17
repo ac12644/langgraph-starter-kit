@@ -84,8 +84,8 @@ let _default: Promise<BaseChatModel> | undefined;
  * Pass options to build a distinct model, e.g. a cheap model for routing and a
  * stronger one for reasoning:
  *
- *   const router = await getLlm({ model: "gpt-4o-mini" });
- *   const worker = await getLlm({ model: "gpt-4o" });
+ *   const router = await getLlm({ model: "gpt-6-luna" });
+ *   const worker = await getLlm({ provider: "anthropic", model: "claude-sonnet-5-5" });
  */
 export function getLlm(opts?: LlmOptions): Promise<BaseChatModel> {
   if (!opts || Object.keys(opts).length === 0) {
