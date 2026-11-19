@@ -93,7 +93,7 @@ export async function createSupportApp() {
     // compresses older turns while keeping the recent ones verbatim.
     //
     // Summarizing with the configured model keeps this provider-agnostic.
-    // Pass a cheaper one — getLlm({ model: "gpt-4o-mini" }) — if you know
+    // Pass a cheaper one — getLlm({ model: "gpt-6-luna" }) — if you know
     // which provider you are on; the model name is provider-specific.
     middleware: [
       summarizationMiddleware({

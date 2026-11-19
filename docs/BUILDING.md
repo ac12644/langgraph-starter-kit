@@ -53,7 +53,7 @@ Models come from the provider factory:
 import { getLlm } from "../config/llm";
 
 const llm = await getLlm();                          // env-configured, shared instance
-const cheap = await getLlm({ model: "gpt-4o-mini" }); // per-agent override
+const cheap = await getLlm({ model: "gpt-6-luna" }); // per-agent override
 ```
 
 ## Creating an agent: `makeAgent`
@@ -298,7 +298,7 @@ Two apps use them, and both illustrate *when* rather than just how:
 cheap one:
 
 ```typescript
-model: await getLlm({ model: "gpt-4o-mini" })   // breaks on Ollama, Anthropic, …
+model: await getLlm({ model: "gpt-6-luna" })   // breaks on Ollama, Anthropic, …
 ```
 
 `getLlm({ model })` overrides the *model name* but keeps the env-configured
